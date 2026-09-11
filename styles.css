@@ -99,9 +99,9 @@ h1 span { font-style: italic; color: #986545; }
 .lookup-inner { padding: 24px 8px 8px; }
 .name-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 24px; }
 .name-fields label { min-width: 0; text-align: left; color: var(--muted); font: 13px Arial, sans-serif; }
-.name-fields input { display: block; margin-top: 8px; width: 100%; min-width: 0; min-height: 48px; padding: 12px 2px; border: 0; border-bottom: 1px solid #d5dfe4; border-radius: 0; background: transparent; color: var(--ink); font: 16px Arial, sans-serif; scroll-margin-block: 24px; transition: border-color 180ms ease, box-shadow 180ms ease; }
-.name-fields input:focus { border-bottom-color: #7598b0; outline: none; box-shadow: 0 1px 0 #7598b0; }
-.name-fields input:focus-visible { outline: none; border-bottom-color: #476b84; box-shadow: 0 2px 0 #476b84; }
+.name-fields input { display: block; margin-top: 8px; width: 100%; min-width: 0; min-height: 48px; padding: 12px; border: 1px solid #bdcdd7; border-radius: 6px; background: #f7fafc; color: var(--ink); font: 16px Arial, sans-serif; scroll-margin-block: 24px; transition: border-color 180ms ease, background-color 180ms ease; }
+.name-fields input:focus { border-color: #7598b0; background: #fff; outline: none; box-shadow: none; }
+.name-fields input:focus-visible { outline: none; border-color: #476b84; box-shadow: none; }
 @media (prefers-reduced-motion: reduce) {
   #lookup-panel, .name-fields input { transition: none; }
 }
