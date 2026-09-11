@@ -62,7 +62,21 @@ h1 span { font-style: italic; color: #986545; }
 .date { margin: 8px 0; font-size: clamp(20px, 4vw, 27px); }
 .time { display: inline-block; margin: 12px 0 0; padding: 10px 24px; border-radius: 40px; background: var(--orange); font-family: Arial, sans-serif; font-size: 14px; }
 .preview-note { margin: 0 0 24px; font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); }
+.invitation { margin: 40px auto 0; max-width: 580px; }
+.invitation h2 { font-size: clamp(20px, 4vw, 26px); font-weight: 400; line-height: 1.4; }
+.primary-button { padding: 14px 24px; border: 1px solid transparent; border-radius: 28px; background: var(--orange); color: var(--ink); font: 15px Arial, sans-serif; cursor: pointer; min-height: 48px; }
+.primary-button:hover { border-color: #986545; }
+.primary-button:disabled { opacity: .65; cursor: default; }
+:focus-visible { outline: 3px solid #476b84; outline-offset: 4px; }
+[hidden] { display: none !important; }
+#lookup-panel { margin-top: 24px; padding: 24px; border: 1px solid var(--blue); border-radius: 12px; }
+.name-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.name-fields label { text-align: left; font: 14px Arial, sans-serif; }
+.name-fields input { display: block; margin-top: 8px; width: 100%; min-width: 0; padding: 12px; border: 1px solid #859aab; border-radius: 6px; background: #fff; color: var(--ink); font: 16px Arial, sans-serif; }
+.lookup-status { margin-bottom: 0; }
+.lookup-note { font: 12px/1.7 Arial, sans-serif; color: var(--muted); margin: 16px 0 0; }
 @media (max-width: 420px) {
   main { border-radius: 100px 100px 20px 20px; }
   h1 span { display: block; margin: 6px 0; font-size: 32px; }
+  .name-fields { grid-template-columns: 1fr; }
 }

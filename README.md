@@ -36,7 +36,9 @@ Wedding details, travel information, photos, and registry links can be added her
 
 ## Guest list
 
-See [guest-list setup](docs/guest-list.md) for the private CSV format and local database importer. The live site is still public: guest authentication is not yet implemented. Keep real guest data outside this project folder.
+See [guest-list setup](docs/guest-list.md) for the private CSV format, local database importer, and invitation lookup. The live site is still public: guest authentication is not yet implemented, and the name lookup awaits hosted backend configuration. Keep real guest data outside this project folder.
+
+To test name lookup locally after importing the guest CSV, run `python -m backend.server` and visit http://127.0.0.1:8080. Names are checked on the server; a match does not grant access to private content. Run backend checks with `python -m unittest discover -s tests -v`.
 
 ## Content and design
 

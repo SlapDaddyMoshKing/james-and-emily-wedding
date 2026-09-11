@@ -31,6 +31,8 @@ def build_preview():
     rendered = rendered.replace("<main>", '<main>\n      <p class="preview-note">Private local preview</p>', 1)
     (output / "index.html").write_text(rendered, encoding="utf-8")
     shutil.copyfile(REPO_ROOT / "styles.css", output / "styles.css")
+    shutil.copyfile(REPO_ROOT / "guest-lookup.js", output / "guest-lookup.js")
+    shutil.copyfile(REPO_ROOT / "site-config.json", output / "site-config.json")
     print(output / "index.html")
 
 

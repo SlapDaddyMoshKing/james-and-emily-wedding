@@ -8,6 +8,7 @@
     <meta name="theme-color" content="#dcecf6">
     <title>Emily &amp; James</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="guest-lookup.js" defer></script>
   </head>
   <body>
     <main>
@@ -19,6 +20,23 @@
       <p class="message">Our next chapter is on its way.</p>
       <p class="details">We're putting together a little home for our big day.<br>Wedding details coming soon.</p>
       <!-- wedding-content:end -->
+      <section class="invitation" aria-labelledby="invitation-title">
+        <h2 id="invitation-title">A celebration with our favorite people</h2>
+        <button class="primary-button" id="open-lookup" type="button" aria-expanded="false" aria-controls="lookup-panel" hidden>Am I invited?</button>
+        <div id="lookup-panel" hidden>
+          <p class="details" id="lookup-help">Enter your first and last name as they appear on your invitation.</p>
+          <form id="guest-lookup" aria-describedby="lookup-help">
+            <div class="name-fields">
+              <label>First name<input name="first_name" autocomplete="given-name" maxlength="100" required disabled></label>
+              <label>Last name<input name="last_name" autocomplete="family-name" maxlength="100" required disabled></label>
+            </div>
+            <button class="primary-button" type="submit" disabled>Check my invitation</button>
+          </form>
+          <p id="lookup-status" class="details lookup-status" role="status" aria-live="polite"></p>
+          <p class="lookup-note">Your invitation check won't sign you in. Private wedding details require an emailed sign-in code.</p>
+        </div>
+        <noscript><p class="details">Please enable JavaScript to check your invitation.</p></noscript>
+      </section>
       <p class="signoff">With love, Emily &amp; James</p>
     </main>
   </body>
