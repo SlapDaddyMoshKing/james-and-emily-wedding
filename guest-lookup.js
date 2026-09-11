@@ -17,7 +17,6 @@ openButton.addEventListener("click", () => {
 });
 
 async function configureLookup() {
-  statusText.textContent = "Getting your invitation check ready…";
   try {
     const response = await fetch(new URL("site-config.json", document.baseURI), {
       cache: "no-store",
@@ -36,7 +35,8 @@ async function configureLookup() {
     lookupUrl = endpoint.href;
     statusText.textContent = "";
   } catch {
-    statusText.textContent = "Invitation lookup is coming soon. Please check back a little later.";
+    // Keep the entry form quiet; explain availability only after a submission.
+    lookupUrl = null;
   } finally {
     configuring = false;
   }
@@ -48,7 +48,7 @@ form.addEventListener("submit", async (event) => {
   if (!lookupUrl) {
     statusText.textContent = configuring
       ? "The invitation check is still loading. Please try again in a moment."
-      : "Invitation lookup is coming soon. Your name hasn't been checked or saved. Please check back a little later.";
+      : "We couldn't check your invitation right now. Please try again later.";
     return;
   }
   const firstName = form.elements.first_name.value.trim();
