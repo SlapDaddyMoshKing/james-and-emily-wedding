@@ -80,7 +80,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch(lookupUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "omit",
+      credentials: "same-origin",
       cache: "no-store",
       body: JSON.stringify({ first_name: firstName, last_name: lastName }),
       signal: AbortSignal.timeout(10000),
@@ -92,9 +92,19 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error("Lookup unavailable");
     const result = await response.json();
     if (typeof result.invited !== "boolean") throw new Error("Invalid response");
-    statusText.textContent = result.invited
-      ? "You're on our invitation list! We can't wait to celebrate with you. Email sign-in will be available soon."
-      : "We couldn't find that name on our invitation list. Check the spelling on your invitation, or reach out to Emily or James.";
+    // The local design walkthrough is separate from the real hosted lookup below.
+    if (result.invited && result.next === "/welcome" && ["127.0.0.1", "localhost"].includes(location.hostname)) {
+      location.assign("/welcome");
+      return;
+    }
+    if (result.invited) {
+      // The hosted lookup only confirms the name matched; it grants no session
+      // and reveals no private details. The welcome page itself lives on this
+      // same public site, not behind the lookup API.
+      location.assign("/welcome.html");
+      return;
+    }
+    statusText.textContent = "We couldn't find that name on our invitation list. Check the spelling on your invitation, or reach out to Emily or James.";
   } catch {
     statusText.textContent = "We couldn't check your invitation right now. Please try again later.";
   } finally {

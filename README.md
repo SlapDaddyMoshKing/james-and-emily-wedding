@@ -36,7 +36,7 @@ Wedding details, travel information, photos, and registry links can be added her
 
 ## Guest list
 
-See [guest-list setup](docs/guest-list.md) for the private CSV format, local database importer, and invitation lookup. The live site is still public: guest authentication is not yet implemented, and the name lookup awaits hosted backend configuration. Keep real guest data outside this project folder.
+See [guest-list setup](docs/guest-list.md) for the private CSV format, local database importer, and invitation lookup. The live site is still public, and the name lookup is now hosted on AWS (Lambda + API Gateway, reading guest data from a private S3 bucket) -- `site-config.json` points at it. This is a deliberate name-only check with no session or private-content gate; see the guest-list guide for the reasoning and current limitations, including that the `/welcome.html` redirect target has not been published yet. Keep real guest data outside this project folder.
 
 To test name lookup locally after importing the guest CSV, run `python -m backend.server` and visit http://127.0.0.1:8080. Names are checked on the server; a match does not grant access to private content. Run backend checks with `python -m unittest discover -s tests -v`.
 
@@ -55,3 +55,5 @@ Open `%LOCALAPPDATA%\WeddingSiteData\preview\index.html` in a browser. This prev
 The guest welcome-page design is in `templates/welcome.html` and `welcome.css`. The builder substitutes private ceremony details and copies `%LOCALAPPDATA%\WeddingSiteData\assets\engagement.jpg` into the private preview. Open `%LOCALAPPDATA%\WeddingSiteData\preview\welcome.html` to review it. The photo is displayed at its full portrait aspect ratio on both desktop and mobile.
 
 This is a design preview for the page after guest verification. It is not a live redirect after name matching: email authentication and protected photo delivery are still required. Real ceremony details and the photo remain outside the public repository.
+
+For a complete **local design walkthrough**, run `python scripts/build_private_preview.py`, then `python -m backend.server --preview --port 8081`. Open http://127.0.0.1:8081, click RSVP, and submit an approved name. This local-only mode opens the welcome page and photo through a short-lived preview session. It is not email authentication and cannot be used for a public deployment. The default backend mode continues to return only invitation status. The published GitHub page still needs a hosted API and email sign-in.

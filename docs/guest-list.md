@@ -58,24 +58,30 @@ Visit http://127.0.0.1:8080. This development server serves only the public entr
 
 The public `site-config.json` currently has `invitationLookupUrl` set to `null`. Name fields remain editable regardless of backend availability. Without a connected API, submitting shows a coming-soon message and explicitly confirms the name was not checked or saved. A file opened directly from disk also displays this state. The local server supplies its own same-origin API configuration, so localhost can use the real lookup after a CSV import.
 
-### Hosting still required
+### Hosting: connected (2026-09-11)
 
-The user has an AWS account; it is not connected on this machine. Deploy a production backend before setting `invitationLookupUrl` to its HTTPS endpoint. GitHub Pages does not execute the Python backend. Do not expose the local development server to the internet.
+The name lookup is now hosted on the user's AWS account (region `us-east-2`) and `site-config.json`'s `invitationLookupUrl` points at it:
 
-The hosted API must retain the same request/response contract, keep guest data in private storage, enforce rate limits across instances, and allow browser requests only from the site origin. CORS is not authentication and does not prevent direct callers. Do not log request bodies or use names as authentication credentials. Add managed email verification and enforce current approval on every protected request before publishing ceremony content.
+- **S3** (`wedding-site-guest-data-8f3d21`, private, encrypted, all public access blocked): holds `guests.sqlite3`. Update it with one command instead of the old two-step import-then-upload:
+  `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`
+  This validates and imports locally (same rules as `guest_list.py --import`) and then uploads to S3, so the hosted lookup reflects it immediately. If the upload step fails, it says so explicitly rather than silently leaving the hosted list stale.
+- **Lambda** (`wedding-lookup`, Python 3.12, `backend/lambda_handler.py`): downloads `guests.sqlite3` from S3 on every invocation (so revocation takes effect immediately, matching the local server) and calls the same `is_invited`/`normalize_name` logic as `backend/server.py`. It grants no session and serves no content -- it only answers `{"invited": true/false}`.
+- **API Gateway** (HTTP API `jfjd4a92w5`, single route `POST /lookup`): fronts the Lambda over HTTPS, restricts CORS to `https://slapdaddymoshking.github.io`, and applies a coarse account-wide throttle (10 req/s, burst 20) as a backstop alongside the Lambda's own in-memory per-IP limiter.
+- Deploy credentials live in a local `wedding-site-deploy` AWS CLI profile, scoped by IAM policy to resources named `wedding-*` and the one S3 bucket above -- not admin/root access.
+- To redeploy Lambda code after editing `backend/lambda_handler.py` or `backend/server.py`: zip `backend/` and `scripts/` together and run `aws lambda update-function-code --function-name wedding-lookup --zip-file fileb://path/to.zip --profile wedding-site --region us-east-2`.
 
-### Selected authentication
+### Selected authentication: name-only, deliberately
 
-**Selected sign-in method: emailed one-time codes.** A visitor enters their email, receives a short-lived code if their email is approved, and verifies that code before accessing wedding content. Knowing a name or email address alone must not grant access. Use a managed authentication service for code generation, expiry, single-use verification, retry limits, and session handling; the CSV importer is not an authentication service.
+**This is a conscious trade-off, not an oversight.** An earlier version of this document planned emailed one-time codes; that was superseded on 2026-09-11. The actual guest-facing flow is: enter first and last name, get a yes/no. A correct name alone grants no session and unlocks nothing by itself.
 
-Only email addresses on currently approved guest rows may sign in. Guests without email can stay in the planning list, but cannot sign in independently. Shared household emails represent a shared login identity; individual guest approval must still be respected. Do not allow unrestricted public sign-up. Check approval before sending a code and again after verification; removing approval during the sign-in process must deny access. Changing an email must remove access through the previous address. Never log codes or return them from public APIs.
+The real gate is that the URL of the welcome page (see below) is distributed privately -- e.g. via a QR code on the physical invitation -- not linked from the public site or guessable from `guest-lookup.js`. The user explicitly decided this is sufficient for a wedding site: "We don't need to create the most secure system in the world here." If that changes, revisit email verification (SES + a managed code store) before publishing anything more sensitive than what's already public knowledge.
 
-Email delivery and the managed authentication service still require account setup. No provider has been selected or connected. Before deployment, verify that an unknown email, expired code, reused code, revoked guest, and unauthenticated direct request to a private asset all fail. Verify that an approved guest can receive a code and sign in successfully.
+### Welcome page: published (2026-09-11)
 
-The hosting backend must authenticate requests and check current approval on every request for wedding details, photos, or RSVP data. Approval changes must apply to existing sessions too. Serve private assets through authenticated routes or short-lived authorized URLs. Return a generic response for email sign-in attempts so the authentication endpoint does not reveal guest email addresses. The separate name lookup above intentionally provides yes/no invitation confirmation.
+`guest-lookup.js` redirects an invited match to `/welcome.html` on the same public site (GitHub Pages). That file (and `assets/engagement.jpg`) is generated from the private `wedding-content.json` and the real photo by:
 
-The default authorization boundary is the individual approved guest. Household grouping alone does not authorize changing anyone else's RSVP; explicitly decide household representative permissions when implementing RSVPs.
+`python scripts/publish_welcome_page.py`
 
-The browser must never download the guest CSV or full guest database. The public GitHub repository and generated static assets must never contain protected wedding details. A client-side password overlay does not provide access control.
+Unlike `build_private_preview.py`, this writes directly into the repo root, not a local-only preview folder -- it's meant to be committed and pushed. Doing so makes the real ceremony details and photo fetchable by anyone with the URL; that's the accepted trade-off above, made deliberately, not by accident. The script only writes files -- it never runs `git` itself, so review the output before committing. Re-run it whenever `wedding-content.json` or the photo changes, then commit and push.
 
-GitHub Pages can continue serving a generic entry page, but protecting all wedding content requires a backend or moving to a host with server-side authentication. AWS remains an option; no hosting provider or paid service has been provisioned by this groundwork.
+The browser must never download the guest CSV or full guest database, regardless of the above. AWS holds those, not the public repository or GitHub Pages.
