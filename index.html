@@ -22,7 +22,9 @@
       <section class="invitation" aria-labelledby="invitation-title">
         <h2 id="invitation-title">A celebration with our favorite people</h2>
         <button class="primary-button rsvp-button" id="open-lookup" type="button" aria-expanded="false" aria-controls="lookup-panel" hidden>RSVP</button>
-        <div id="lookup-panel" hidden>
+        <div id="lookup-panel" aria-hidden="true" inert hidden>
+          <div class="lookup-content">
+            <div class="lookup-inner">
           <p class="details" id="lookup-help">Enter your first and last name as they appear on your invitation.</p>
           <form id="guest-lookup" aria-describedby="lookup-help">
             <div class="name-fields">
@@ -33,6 +35,8 @@
           </form>
           <p id="lookup-status" class="details lookup-status" role="status" aria-live="polite"></p>
           <p class="lookup-note">Your invitation check won't sign you in. Private wedding details require an emailed sign-in code.</p>
+            </div>
+          </div>
         </div>
         <noscript><p class="details">Please enable JavaScript to check your invitation.</p></noscript>
       </section>

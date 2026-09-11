@@ -8,12 +8,27 @@ const submitButton = form.querySelector('button[type="submit"]');
 let lookupUrl = null;
 let pending = false;
 let configuring = true;
+let focusTimer;
 
 openButton.hidden = false;
-openButton.addEventListener("click", () => {
-  panel.hidden = !panel.hidden;
-  openButton.setAttribute("aria-expanded", String(!panel.hidden));
-  if (!panel.hidden) form.elements.first_name.focus();
+panel.hidden = false;
+openButton.addEventListener("click", (event) => {
+  const opening = openButton.getAttribute("aria-expanded") !== "true";
+  clearTimeout(focusTimer);
+  openButton.setAttribute("aria-expanded", String(opening));
+  panel.inert = !opening;
+  panel.setAttribute("aria-hidden", String(!opening));
+  panel.classList.toggle("is-open", opening);
+  // Keyboard users move into the form after the reveal. Touch users can tap
+  // a field when ready, so the mobile keyboard doesn't interrupt the animation.
+  if (opening && event.detail === 0) {
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 280;
+    focusTimer = setTimeout(() => {
+      if (openButton.getAttribute("aria-expanded") === "true" && document.activeElement === openButton) {
+        form.elements.first_name.focus({ preventScroll: true });
+      }
+    }, delay);
+  }
 });
 
 async function configureLookup() {
