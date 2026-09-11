@@ -100,8 +100,9 @@ form.addEventListener("submit", async (event) => {
     if (result.invited) {
       // The hosted lookup only confirms the name matched; it grants no session
       // and reveals no private details. The welcome page itself lives on this
-      // same public site, not behind the lookup API.
-      location.assign("/welcome.html");
+      // same public site, not behind the lookup API. Relative, not "/welcome.html":
+      // GitHub Pages serves this as a project page under a subpath, not the domain root.
+      location.assign(new URL("welcome.html", document.baseURI));
       return;
     }
     statusText.textContent = "We couldn't find that name on our invitation list. Check the spelling on your invitation, or reach out to Emily or James.";
