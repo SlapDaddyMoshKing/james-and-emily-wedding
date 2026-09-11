@@ -56,7 +56,7 @@ python -m backend.server
 
 Visit http://127.0.0.1:8080. This development server serves only the public entry page and its required assets. It cannot serve the guest list or private ceremony preview. If the database is missing or cannot be read, the lookup returns an unavailable error rather than claiming the guest is uninvited. No fictional guests are added to your working list; tests use isolated temporary data.
 
-The public `site-config.json` currently has `invitationLookupUrl` set to `null`. The published form is disabled and displays a coming-soon message in this state. A file opened directly from disk also displays this state. The local server supplies its own same-origin API configuration, so localhost can use the real lookup after a CSV import.
+The public `site-config.json` currently has `invitationLookupUrl` set to `null`. Name fields remain editable regardless of backend availability. Without a connected API, submitting shows a coming-soon message and explicitly confirms the name was not checked or saved. A file opened directly from disk also displays this state. The local server supplies its own same-origin API configuration, so localhost can use the real lookup after a CSV import.
 
 ### Hosting still required
 

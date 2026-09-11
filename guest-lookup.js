@@ -7,12 +7,13 @@ const statusText = document.querySelector("#lookup-status");
 const submitButton = form.querySelector('button[type="submit"]');
 let lookupUrl = null;
 let pending = false;
+let configuring = true;
 
 openButton.hidden = false;
 openButton.addEventListener("click", () => {
   panel.hidden = !panel.hidden;
   openButton.setAttribute("aria-expanded", String(!panel.hidden));
-  if (!panel.hidden && lookupUrl) form.elements.first_name.focus();
+  if (!panel.hidden) form.elements.first_name.focus();
 });
 
 async function configureLookup() {
@@ -33,16 +34,23 @@ async function configureLookup() {
       throw new Error("Unsupported lookup address");
     }
     lookupUrl = endpoint.href;
-    for (const input of form.elements) input.disabled = false;
     statusText.textContent = "";
   } catch {
     statusText.textContent = "Invitation lookup is coming soon. Please check back a little later.";
+  } finally {
+    configuring = false;
   }
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!lookupUrl || pending || !form.reportValidity()) return;
+  if (pending || !form.reportValidity()) return;
+  if (!lookupUrl) {
+    statusText.textContent = configuring
+      ? "The invitation check is still loading. Please try again in a moment."
+      : "Invitation lookup is coming soon. Your name hasn't been checked or saved. Please check back a little later.";
+    return;
+  }
   const firstName = form.elements.first_name.value.trim();
   const lastName = form.elements.last_name.value.trim();
   if (!firstName || !lastName) {
