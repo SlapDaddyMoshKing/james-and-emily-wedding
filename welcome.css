@@ -52,6 +52,33 @@ h1 span { display: block; font-size: .6em; font-style: italic; color: #986545; m
 .ceremony-facts { margin-top: 24px; display: grid; gap: 20px; grid-template-columns: 1fr; }
 .ceremony-facts p { margin: 0; font-size: 18px; line-height: 1.5; }
 .ceremony-facts .fact-label { margin-bottom: 4px; font: 11px/1.7 Arial, sans-serif; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.details { font: 15px/1.9 Arial, sans-serif; color: var(--muted); }
+.primary-button { max-width: 100%; padding: 14px 24px; border: 1px solid transparent; border-radius: 28px; background: var(--peach); color: var(--ink); font: 15px Arial, sans-serif; cursor: pointer; min-height: 48px; touch-action: manipulation; }
+.primary-button:hover { border-color: #986545; }
+.primary-button:disabled { opacity: .65; cursor: default; }
+.name-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 20px 0; }
+.name-fields label { min-width: 0; text-align: left; color: var(--muted); font: 13px Arial, sans-serif; }
+.name-fields input { display: block; margin-top: 8px; width: 100%; min-width: 0; min-height: 48px; padding: 12px; border: 1px solid #bdcdd7; border-radius: 6px; background: #f7fafc; color: var(--ink); font: 16px Arial, sans-serif; }
+.name-fields input:focus-visible { outline: none; border-color: #476b84; }
+.map-section { scroll-margin-top: 32px; margin-top: 88px; }
+.map-heading h2 { font-size: clamp(30px, 3.4vw, 44px); font-weight: 400; margin: 16px 0; }
+.map-card { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, .7fr); border-radius: 12px; overflow: hidden; background: #edf4f8; }
+.venue-map { width: 100%; height: 320px; border: 0; display: block; }
+.map-details { padding: 32px; align-self: center; }
+.venue-name { font-size: 24px; margin: 0 0 8px; }
+.venue-address { color: var(--muted); font: 15px/1.7 Arial, sans-serif; margin: 0 0 20px; }
+.rsvp-section { scroll-margin-top: 32px; margin-top: 88px; padding: 48px; background: var(--paper); border: 1px solid #e3e9ee; border-radius: 12px; }
+.rsvp-heading { text-align: center; margin-bottom: 8px; }
+.rsvp-heading h2 { font-size: clamp(30px, 3.4vw, 44px); font-weight: 400; margin: 16px 0; }
+.rsvp-card { max-width: 520px; margin: 0 auto; text-align: center; }
+.rsvp-members { list-style: none; margin: 24px 0; padding: 0; display: grid; gap: 16px; text-align: left; }
+.rsvp-member { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: #f8fafb; border-radius: 8px; }
+.rsvp-member-name { font-size: 17px; }
+.rsvp-choice { display: flex; gap: 8px; }
+.rsvp-choice button { padding: 8px 18px; border-radius: 999px; border: 1px solid #c9d6de; background: var(--paper); color: var(--ink); font: 13px Arial, sans-serif; cursor: pointer; }
+.rsvp-choice button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.rsvp-status { text-align: center; }
+.rsvp-status:empty { display: none; }
 footer { border-top: 1px solid var(--green); padding: 32px 20px; text-align: center; font-size: 16px; color: var(--muted); }
 footer span { color: var(--ink); font-style: italic; }
 @media (max-width: 760px) {
@@ -69,6 +96,12 @@ footer span { color: var(--ink); font-style: italic; }
   .ceremony-section { margin-top: 48px; grid-template-columns: 1fr; gap: 16px; padding: 28px 20px; text-align: center; }
   .ceremony-card { padding: 24px 16px; }
   .ceremony-heading h2 { font-size: 34px; }
+  .map-section, .rsvp-section { margin-top: 48px; }
+  .map-card { grid-template-columns: 1fr; }
+  .map-details { padding: 24px; text-align: center; }
+  .rsvp-section { padding: 28px 20px; }
+  .name-fields { grid-template-columns: 1fr; }
+  .rsvp-member { flex-direction: column; align-items: stretch; text-align: center; }
 }
 @media (max-width: 380px) {
   main { padding-inline: 16px; }

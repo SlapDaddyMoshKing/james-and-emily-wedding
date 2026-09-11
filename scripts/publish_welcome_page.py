@@ -12,6 +12,7 @@ import html
 import json
 import shutil
 from string import Template
+from urllib.parse import quote
 
 from guest_list import DATA_DIR, REPO_ROOT, private_path
 
@@ -19,8 +20,10 @@ from guest_list import DATA_DIR, REPO_ROOT, private_path
 def publish():
     content_path = private_path(DATA_DIR / "wedding-content.json")
     content = json.loads(content_path.read_text(encoding="utf-8-sig"))
-    required = ("venue", "location", "date_label", "date_iso", "time_label")
+    required = ("venue", "location", "address", "date_label", "date_iso", "time_label")
     values = {key: html.escape(content[key], quote=True) for key in required}
+    # Pre-encoded for use inside the map iframe/link src attributes below.
+    values["map_query"] = html.escape(quote(f"{content['venue']}, {content['address']}"), quote=True)
 
     template_text = (REPO_ROOT / "templates" / "welcome.html").read_text(encoding="utf-8")
     # The "Private design preview" banner is only for the local walkthrough.

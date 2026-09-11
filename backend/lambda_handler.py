@@ -1,30 +1,48 @@
-"""AWS Lambda entry point: a hosted version of the invitation name lookup.
+"""AWS Lambda entry point: hosted invitation lookup, party lookup, and RSVP.
 
-This does one thing only -- check a submitted first/last name against the
-private guest list in S3 and answer {"invited": true/false}. It does not
-grant a session, issue a cookie, or serve any wedding content; the welcome
-page continues to live on the public site (GitHub Pages), reached by a plain
-client-side redirect after a match. AWS's only job here is to hold the guest
-list somewhere the public site's JavaScript can query it over HTTPS.
+Three endpoints, dispatched by path:
+- POST /lookup  {first_name, last_name} -> {"invited": true/false}
+  Pure name check. Grants no session, serves no content.
+- POST /party   {first_name, last_name} -> {"members": [...]}
+  Re-validates the name, then returns everyone sharing that guest's
+  household_id (i.e. their party/+1s) along with each person's current RSVP.
+- POST /rsvp    {first_name, last_name, responses: [{guest_id, attending}]}
+  Re-validates the name and that every guest_id belongs to that same
+  household before writing anything.
 
-guests.sqlite3 is re-downloaded from S3 on every invocation (it's tiny), so a
-guest-list re-import -- which can revoke access -- takes effect immediately,
-matching backend/server.py's documented local behavior.
+None of this grants a session or a cookie -- every call re-proves the name
+against the current guest list. That's consistent with the rest of this
+project's deliberately name-only, low-ceremony trust model (see
+docs/guest-list.md); the real gate is that these URLs aren't public.
+
+RSVP responses are stored as one small object per guest
+(rsvps/<guest_id>.json) rather than inside guests.sqlite3, specifically so
+that re-importing the guest CSV (which replaces the whole guests table)
+never wipes out RSVPs already collected.
+
+guests.sqlite3 is re-downloaded from S3 on every invocation (it's tiny), so
+a guest-list re-import -- which can revoke access -- takes effect
+immediately, matching backend/server.py's documented local behavior.
 
 Configure via environment variables on the Lambda function:
-  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3
+  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3 and rsvps/*
 """
 
+from contextlib import closing
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import sqlite3
 
 import boto3
+from botocore.exceptions import ClientError
 
-from backend.server import RateLimit, is_invited
+from backend.server import RateLimit, is_invited, normalize_name
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
+MAX_PARTY_SIZE = 20
 
 _s3 = boto3.client("s3")
 # Per-warm-container only (not shared across concurrent Lambdas); a coarse
@@ -35,30 +53,135 @@ _HEADERS = {"Content-Type": "application/json; charset=utf-8", "Cache-Control": 
             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
 
 
-def _respond(status, body):
-    return {"statusCode": status, "headers": _HEADERS, "body": json.dumps(body)}
+def _respond(status, body, extra_headers=None):
+    return {"statusCode": status, "headers": {**_HEADERS, **(extra_headers or {})}, "body": json.dumps(body)}
 
 
-def handler(event, context):
-    request_context = event.get("requestContext", {})
-    http = request_context.get("http", {})
-    if http.get("method", "GET") != "POST":
-        return _respond(405, {"error": "Use POST."})
+def _sync_database():
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _s3.download_file(BUCKET, "guests.sqlite3", str(DATABASE_PATH))
 
-    source_ip = http.get("sourceIp", "unknown")
-    if not _limiter.allow(source_ip):
-        return {**_respond(429, {"error": "Please try again later."}), "headers": {**_HEADERS, "Retry-After": "600"}}
 
+def _household_members(first_name, last_name):
+    """None if the name doesn't match an approved guest; otherwise every
+    approved guest sharing that person's household_id, self included."""
+    first, last = normalize_name(first_name), normalize_name(last_name)
+    with closing(sqlite3.connect(DATABASE_PATH.as_uri() + "?mode=ro", uri=True)) as connection:
+        connection.create_function("normalized_name", 1, normalize_name, deterministic=True)
+        row = connection.execute("""SELECT household_id FROM guests WHERE access_approved = 1
+            AND normalized_name(first_name) = ? AND normalized_name(last_name) = ? LIMIT 1""",
+            (first, last)).fetchone()
+        if row is None:
+            return None
+        return connection.execute("""SELECT guest_id, first_name, last_name FROM guests
+            WHERE access_approved = 1 AND household_id = ? ORDER BY guest_id""", (row[0],)).fetchall()
+
+
+def _rsvp_key(guest_id):
+    return f"rsvps/{guest_id}.json"
+
+
+def _read_rsvp(guest_id):
     try:
-        payload = json.loads(event.get("body") or "{}")
-        if not isinstance(payload, dict) or set(payload) != {"first_name", "last_name"}:
-            raise ValueError("Enter a first and last name.")
-        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _s3.download_file(BUCKET, "guests.sqlite3", str(DATABASE_PATH))
+        response = _s3.get_object(Bucket=BUCKET, Key=_rsvp_key(guest_id))
+        return json.loads(response["Body"].read())["attending"]
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+            return None
+        raise
+
+
+def _write_rsvp(guest_id, attending):
+    body = json.dumps({"attending": attending, "updated_at": datetime.now(timezone.utc).isoformat()})
+    _s3.put_object(Bucket=BUCKET, Key=_rsvp_key(guest_id), Body=body.encode("utf-8"),
+                    ContentType="application/json; charset=utf-8", ServerSideEncryption="AES256")
+
+
+def _members_payload(rows):
+    return [{"guest_id": guest_id, "first_name": first, "last_name": last, "attending": _read_rsvp(guest_id)}
+            for guest_id, first, last in rows]
+
+
+def _lookup(payload):
+    if not isinstance(payload, dict) or set(payload) != {"first_name", "last_name"}:
+        return _respond(400, {"error": "Enter a valid first and last name."})
+    try:
         invited = is_invited(DATABASE_PATH, payload["first_name"], payload["last_name"])
     except (ValueError, UnicodeError):
         return _respond(400, {"error": "Enter a valid first and last name."})
-    except Exception:
+    except sqlite3.Error:
+        return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
+    return _respond(200, {"invited": invited})
+
+
+def _party(payload):
+    if not isinstance(payload, dict) or set(payload) != {"first_name", "last_name"}:
+        return _respond(400, {"error": "Enter a valid first and last name."})
+    try:
+        rows = _household_members(payload["first_name"], payload["last_name"])
+    except (ValueError, UnicodeError):
+        return _respond(400, {"error": "Enter a valid first and last name."})
+    except sqlite3.Error:
+        return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
+    if rows is None:
+        return _respond(403, {"error": "We couldn't confirm your invitation. Please check the spelling and try again."})
+    try:
+        return _respond(200, {"members": _members_payload(rows)})
+    except ClientError:
+        return _respond(503, {"error": "RSVP is temporarily unavailable."})
+
+
+def _rsvp(payload):
+    if (not isinstance(payload, dict) or set(payload) != {"first_name", "last_name", "responses"}
+            or not isinstance(payload.get("responses"), list) or not 1 <= len(payload["responses"]) <= MAX_PARTY_SIZE):
+        return _respond(400, {"error": "Enter a valid RSVP."})
+    for response in payload["responses"]:
+        if not isinstance(response, dict) or set(response) != {"guest_id", "attending"} \
+                or not isinstance(response["guest_id"], str) or not isinstance(response["attending"], bool):
+            return _respond(400, {"error": "Enter a valid RSVP."})
+    try:
+        rows = _household_members(payload["first_name"], payload["last_name"])
+    except (ValueError, UnicodeError):
+        return _respond(400, {"error": "Enter a valid first and last name."})
+    except sqlite3.Error:
+        return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
+    if rows is None:
+        return _respond(403, {"error": "We couldn't confirm your invitation. Please check the spelling and try again."})
+    household_ids = {guest_id for guest_id, _, _ in rows}
+    for response in payload["responses"]:
+        if response["guest_id"] not in household_ids:
+            return _respond(403, {"error": "That guest is not part of your invitation."})
+    try:
+        for response in payload["responses"]:
+            _write_rsvp(response["guest_id"], response["attending"])
+        return _respond(200, {"members": _members_payload(rows)})
+    except ClientError:
+        return _respond(503, {"error": "We couldn't save your RSVP right now. Please try again shortly."})
+
+
+_ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp}
+
+
+def handler(event, context):
+    http = event.get("requestContext", {}).get("http", {})
+    if http.get("method", "GET") != "POST":
+        return _respond(405, {"error": "Use POST."})
+
+    route = _ROUTES.get(http.get("path", ""))
+    if route is None:
+        return _respond(404, {"error": "Not found."})
+
+    if not _limiter.allow(http.get("sourceIp", "unknown")):
+        return _respond(429, {"error": "Please try again later."}, {"Retry-After": "600"})
+
+    try:
+        payload = json.loads(event.get("body") or "{}")
+    except ValueError:
+        return _respond(400, {"error": "Enter a valid request."})
+
+    try:
+        _sync_database()
+    except OSError:
         return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
 
-    return _respond(200, {"invited": invited})
+    return route(payload)

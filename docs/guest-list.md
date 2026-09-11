@@ -17,7 +17,7 @@ Use one row per named guest, including children. Assign permanent IDs; do not re
 | Column | What to enter |
 | --- | --- |
 | guest_id | Unique ID such as G001; never reuse it for another person |
-| household_id | Shared ID such as H001 for guests on the same invitation |
+| household_id | Shared ID such as H001 for guests on the same invitation -- this is also how +1s are grouped for RSVP: give a named +1 the same household_id as the guest they're invited with |
 | first_name | Guest's first name |
 | last_name | Guest's last name |
 | email | One email, or blank for someone without their own email |
@@ -46,7 +46,9 @@ Every import represents the **complete guest list**, not a few additional rows. 
 
 The visitor opens **RSVP**, enters first and last name, and submits the form. The backend checks the private database for an approved exact name match, ignoring case, repeated whitespace, and straight versus curly apostrophes. It does not use partial or fuzzy matching. A matching name confirms only that the name is invited; it does not establish identity or unlock any wedding content. Duplicate names cannot identify an individual; email verification must resolve identity later.
 
-This yes/no lookup deliberately reveals whether a submitted name is approved, as requested. It never returns an email address, a guest or household ID, other household members, or a sign-in session. Requests use POST rather than placing guest names in URLs. A local per-IP limit allows ten attempts per ten minutes.
+This yes/no lookup deliberately reveals whether a submitted name is approved, as requested. It never returns an email address or a sign-in session. Requests use POST rather than placing guest names in URLs. A local per-IP limit allows ten attempts per ten minutes.
+
+**Household members are exposed by the hosted `/party` endpoint** (see below), a deliberate change from the original design here -- RSVPing for a +1 requires knowing who the +1 is. `/lookup` itself is unchanged and still returns only `{"invited": true/false}`.
 
 After importing the full working CSV, start the local backend from the repository root:
 
@@ -66,9 +68,23 @@ The name lookup is now hosted on the user's AWS account (region `us-east-2`) and
   `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`
   This validates and imports locally (same rules as `guest_list.py --import`) and then uploads to S3, so the hosted lookup reflects it immediately. If the upload step fails, it says so explicitly rather than silently leaving the hosted list stale.
 - **Lambda** (`wedding-lookup`, Python 3.12, `backend/lambda_handler.py`): downloads `guests.sqlite3` from S3 on every invocation (so revocation takes effect immediately, matching the local server) and calls the same `is_invited`/`normalize_name` logic as `backend/server.py`. It grants no session and serves no content -- it only answers `{"invited": true/false}`.
-- **API Gateway** (HTTP API `jfjd4a92w5`, single route `POST /lookup`): fronts the Lambda over HTTPS, restricts CORS to `https://slapdaddymoshking.github.io`, and applies a coarse account-wide throttle (10 req/s, burst 20) as a backstop alongside the Lambda's own in-memory per-IP limiter.
+- **API Gateway** (HTTP API `jfjd4a92w5`, routes `POST /lookup`, `POST /party`, `POST /rsvp`): fronts the Lambda over HTTPS, restricts CORS to `https://slapdaddymoshking.github.io`, and applies a coarse account-wide throttle (10 req/s, burst 20) as a backstop alongside the Lambda's own in-memory per-IP limiter.
 - Deploy credentials live in a local `wedding-site-deploy` AWS CLI profile, scoped by IAM policy to resources named `wedding-*` and the one S3 bucket above -- not admin/root access.
 - To redeploy Lambda code after editing `backend/lambda_handler.py` or `backend/server.py`: zip `backend/` and `scripts/` together and run `aws lambda update-function-code --function-name wedding-lookup --zip-file fileb://path/to.zip --profile wedding-site --region us-east-2`.
+
+### RSVP and +1s: connected (2026-09-11)
+
+The welcome page's RSVP section (`welcome.js`, `POST /party`, `POST /rsvp`) uses the existing `household_id` column as the +1 mechanism -- no schema change needed. To make two guests part of the same party, give them the **same `household_id`** in the CSV; each keeps their own `guest_id` and can RSVP independently.
+
+- `POST /party` `{first_name, last_name}` -> re-validates the name (same rules as `/lookup`), then returns every approved guest sharing that household_id, each with their current RSVP status (`true`/`false`/`null` for not yet answered). This is the endpoint that now exposes other household members' names -- see the note above.
+- `POST /rsvp` `{first_name, last_name, responses: [{guest_id, attending}]}` -> re-validates the name and that every `guest_id` in `responses` belongs to that same household before writing anything; a `guest_id` from outside the household is rejected with 403.
+- RSVP responses are stored as **individual objects in S3** (`rsvps/<guest_id>.json`), not inside `guests.sqlite3`. This is deliberate: a guest-list CSV import replaces the entire `guests` table, and mixing RSVP answers into that table would mean re-importing the list (e.g. to add a guest) silently erases everyone's RSVPs. Keeping them separate means RSVPs persist across any number of future guest-list updates.
+- Neither endpoint issues a session; both re-check the submitted name against the current guest list every time, consistent with the name-only trust model above.
+- The welcome page carries the guest's name from the RSVP check to itself via `sessionStorage` (not a URL, to keep it out of browser history) so it doesn't have to ask again -- but it degrades gracefully to a small "enter your name" form on `welcome.html` if that's missing (a bookmark, a shared link, or a fresh tab), so there's no dead end.
+
+### Venue map: added (2026-09-11)
+
+`welcome.html`'s map section is a plain Google Maps embed (`google.com/maps?q=...&output=embed` iframe, no API key) built from `wedding-content.json`'s `venue` and `address` fields. No Google Cloud account or billing setup required; if a nicer/branded embed is wanted later, that needs a Google Maps Embed API key instead.
 
 ### Selected authentication: name-only, deliberately
 

@@ -102,6 +102,15 @@ form.addEventListener("submit", async (event) => {
       // and reveals no private details. The welcome page itself lives on this
       // same public site, not behind the lookup API. Relative, not "/welcome.html":
       // GitHub Pages serves this as a project page under a subpath, not the domain root.
+      // sessionStorage carries the name across the page navigation so the welcome
+      // page can look up the RSVP party without asking again; it re-verifies the
+      // name itself rather than trusting this value.
+      try {
+        sessionStorage.setItem("guestFirstName", firstName);
+        sessionStorage.setItem("guestLastName", lastName);
+      } catch {
+        // Private browsing or blocked storage: welcome.html falls back to asking again.
+      }
       location.assign(new URL("welcome.html", document.baseURI));
       return;
     }

@@ -41,7 +41,7 @@
         </div>
         <div class="ceremony-card">
           <p class="eyebrow">Wedding ceremony</p>
-          <h3>1684</h3>
+          <h3>1684 Venue Resort</h3>
           <p class="venue-location">Tenkiller Lake, Oklahoma</p>
           <div class="ceremony-facts">
             <div><p class="fact-label">When</p><p><time datetime="2027-04-24T16:00:00-05:00">April 24, 2027</time></p></div>
@@ -49,7 +49,43 @@
           </div>
         </div>
       </section>
+      <section class="map-section" aria-labelledby="map-title">
+        <div class="map-heading">
+          <p class="eyebrow">Getting there</p>
+          <h2 id="map-title">Find your way to us.</h2>
+        </div>
+        <div class="map-card">
+          <iframe class="venue-map" title="Map to 1684 Venue Resort" src="https://www.google.com/maps?q=1684%20Venue%20Resort%2C%2035329%20Highway%2082%2C%20Cookson%2C%20OK%2074427&output=embed" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+          <div class="map-details">
+            <p class="venue-name">1684 Venue Resort</p>
+            <p class="venue-address">35329 Highway 82, Cookson, OK 74427</p>
+            <a class="details-link" href="https://www.google.com/maps/dir/?api=1&destination=1684%20Venue%20Resort%2C%2035329%20Highway%2082%2C%20Cookson%2C%20OK%2074427" target="_blank" rel="noopener">Get directions <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+      </section>
+      <section class="rsvp-section" id="rsvp" aria-labelledby="rsvp-title">
+        <div class="rsvp-heading">
+          <p class="eyebrow">Before you go</p>
+          <h2 id="rsvp-title">Let us know you're coming.</h2>
+        </div>
+        <div class="rsvp-card">
+          <form id="rsvp-name-form" class="rsvp-name-form" hidden>
+            <p class="details">We couldn't tell who's RSVPing. Enter your name to pull up your invitation.</p>
+            <div class="name-fields">
+              <label>First name<input name="first_name" autocomplete="given-name" maxlength="100" required></label>
+              <label>Last name<input name="last_name" autocomplete="family-name" maxlength="100" required></label>
+            </div>
+            <button class="primary-button" type="submit">Find my invitation</button>
+          </form>
+          <p id="rsvp-status" class="details rsvp-status" role="status" aria-live="polite">Loading your invitation…</p>
+          <form id="rsvp-form" class="rsvp-form" hidden>
+            <ul class="rsvp-members" id="rsvp-members"></ul>
+            <button class="primary-button" type="submit">Save my RSVP</button>
+          </form>
+        </div>
+      </section>
     </main>
     <footer>With love, <span>Emily &amp; James</span></footer>
+    <script src="welcome.js"></script>
   </body>
 </html>
