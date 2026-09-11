@@ -67,6 +67,23 @@ h1 span { font-style: italic; color: #986545; }
 .primary-button { padding: 14px 24px; border: 1px solid transparent; border-radius: 28px; background: var(--orange); color: var(--ink); font: 15px Arial, sans-serif; cursor: pointer; min-height: 48px; }
 .primary-button:hover { border-color: #986545; }
 .primary-button:disabled { opacity: .65; cursor: default; }
+.rsvp-button {
+  min-width: 176px;
+  min-height: 54px;
+  padding: 15px 36px;
+  border: 1px solid #a9c0d0;
+  border-radius: 4px;
+  background: #edf4f8;
+  color: var(--ink);
+  font: 18px/1.2 Georgia, 'Times New Roman', serif;
+  letter-spacing: .18em;
+  text-indent: .18em;
+  box-shadow: 0 3px 0 #f7d2b580;
+  transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.rsvp-button:hover { background: var(--blue); border-color: #7598b0; box-shadow: 0 3px 0 var(--orange); }
+.rsvp-button:active { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .rsvp-button { transition: none; } }
 :focus-visible { outline: 3px solid #476b84; outline-offset: 4px; }
 [hidden] { display: none !important; }
 #lookup-panel { margin-top: 24px; padding: 24px; border: 1px solid var(--blue); border-radius: 12px; }

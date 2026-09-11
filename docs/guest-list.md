@@ -2,7 +2,7 @@
 
 ## Current status
 
-The CSV template, local database importer, and name lookup backend are implemented. The public site has an "Am I invited?" button and form. Its lookup is marked coming soon until the backend is hosted and connected. No guest authentication, email delivery, protected pages, or hosted database has been deployed. Importing the CSV does not change access to the current website.
+The CSV template, local database importer, and name lookup backend are implemented. The public site has an "RSVP" button and form. Its lookup is marked coming soon until the backend is hosted and connected. No guest authentication, email delivery, protected pages, or hosted database has been deployed. Importing the CSV does not change access to the current website.
 
 ## Editing your list
 
@@ -44,7 +44,7 @@ Every import represents the **complete guest list**, not a few additional rows. 
 
 ### Invitation lookup implemented
 
-The visitor opens **Am I invited?**, enters first and last name, and submits the form. The backend checks the private database for an approved exact name match, ignoring case, repeated whitespace, and straight versus curly apostrophes. It does not use partial or fuzzy matching. A matching name confirms only that the name is invited; it does not establish identity or unlock any wedding content. Duplicate names cannot identify an individual; email verification must resolve identity later.
+The visitor opens **RSVP**, enters first and last name, and submits the form. The backend checks the private database for an approved exact name match, ignoring case, repeated whitespace, and straight versus curly apostrophes. It does not use partial or fuzzy matching. A matching name confirms only that the name is invited; it does not establish identity or unlock any wedding content. Duplicate names cannot identify an individual; email verification must resolve identity later.
 
 This yes/no lookup deliberately reveals whether a submitted name is approved, as requested. It never returns an email address, a guest or household ID, other household members, or a sign-in session. Requests use POST rather than placing guest names in URLs. A local per-IP limit allows ten attempts per ten minutes.
 
