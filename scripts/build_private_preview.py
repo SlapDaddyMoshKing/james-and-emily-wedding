@@ -3,6 +3,7 @@
 import html
 import json
 import shutil
+from string import Template
 
 from guest_list import DATA_DIR, REPO_ROOT, private_path
 
@@ -33,6 +34,14 @@ def build_preview():
     shutil.copyfile(REPO_ROOT / "styles.css", output / "styles.css")
     shutil.copyfile(REPO_ROOT / "guest-lookup.js", output / "guest-lookup.js")
     shutil.copyfile(REPO_ROOT / "site-config.json", output / "site-config.json")
+    photo = private_path(DATA_DIR / "assets" / "engagement.jpg")
+    if photo.is_file():
+        (output / "assets").mkdir(exist_ok=True)
+        shutil.copyfile(photo, output / "assets" / "engagement.jpg")
+        template = Template((REPO_ROOT / "templates" / "welcome.html").read_text(encoding="utf-8"))
+        (output / "welcome.html").write_text(template.substitute(values), encoding="utf-8")
+        shutil.copyfile(REPO_ROOT / "welcome.css", output / "welcome.css")
+        print(output / "welcome.html")
     print(output / "index.html")
 
 

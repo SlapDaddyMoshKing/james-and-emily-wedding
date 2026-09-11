@@ -51,3 +51,7 @@ python scripts/build_private_preview.py
 ```
 
 Open `%LOCALAPPDATA%\WeddingSiteData\preview\index.html` in a browser. This preview is local only; publishing the ceremony details requires the approved-guest access control described in the guest-list guide.
+
+The guest welcome-page design is in `templates/welcome.html` and `welcome.css`. The builder substitutes private ceremony details and copies `%LOCALAPPDATA%\WeddingSiteData\assets\engagement.jpg` into the private preview. Open `%LOCALAPPDATA%\WeddingSiteData\preview\welcome.html` to review it. The photo is displayed at its full portrait aspect ratio on both desktop and mobile.
+
+This is a design preview for the page after guest verification. It is not a live redirect after name matching: email authentication and protected photo delivery are still required. Real ceremony details and the photo remain outside the public repository.
