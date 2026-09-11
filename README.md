@@ -1,4 +1,4 @@
-# James & Emily's Wedding Website
+# Emily & James's Wedding Website
 
 A simple wedding website built with HTML and CSS. No dependencies or paid server required for the starter page.
 
@@ -37,3 +37,15 @@ Wedding details, travel information, photos, and registry links can be added her
 ## Guest list
 
 See [guest-list setup](docs/guest-list.md) for the private CSV format and local database importer. The live site is still public: guest authentication is not yet implemented. Keep real guest data outside this project folder.
+
+## Content and design
+
+Always put Emily's name before James's in displayed names and copy. The palette is light pastel blue and orange, with green and yellow accents.
+
+The public page contains a coming-soon message. Ceremony content is stored privately in `%LOCALAPPDATA%\WeddingSiteData\wedding-content.json` until authenticated hosting is ready. Rebuild the private local preview after styling or content changes:
+
+```powershell
+python scripts/build_private_preview.py
+```
+
+Open `%LOCALAPPDATA%\WeddingSiteData\preview\index.html` in a browser. This preview is local only; publishing the ceremony details requires the approved-guest access control described in the guest-list guide.
