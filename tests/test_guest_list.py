@@ -1,0 +1,73 @@
+import csv
+from contextlib import closing
+from pathlib import Path
+import sqlite3
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from guest_list import COLUMNS, REPO_ROOT, import_guests, private_path, read_guests
+
+
+class GuestListTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = Path(self.temp.name)
+        self.csv = self.folder / "list.csv"
+        self.database = self.folder / "guests.sqlite3"
+
+    def write_rows(self, rows):
+        with self.csv.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.writer(output)
+            writer.writerow(COLUMNS)
+            writer.writerows(rows)
+
+    def test_excel_csv_shared_email_and_unicode(self):
+        self.write_rows([
+            ["G001", "H001", "Renée", "Example, Jr.", " GUEST@EXAMPLE.COM ", "YES"],
+            ["G002", "H001", "Partner", "Example", "guest@example.com", "no"],
+        ])
+        guests = read_guests(self.csv)
+        self.assertEqual(guests[0][4], "guest@example.com")
+        self.assertEqual(guests[0][3], "Example, Jr.")
+        self.assertEqual(guests[1][5], 0)
+
+    def test_bad_lists_rejected(self):
+        good = ["G001", "H001", "Example", "Guest", "guest@example.com", "yes"]
+        cases = [[], [good, good], [good, ["G002", "H002", "Other", "Guest", "guest@example.com", "yes"]]]
+        for column, bad_value in ((0, ""), (2, "=1+1"), (4, "not-an-email"), (5, "maybe")):
+            bad = good.copy()
+            bad[column] = bad_value
+            cases.append([bad])
+        for rows in cases:
+            with self.subTest(rows=rows):
+                self.write_rows(rows)
+                with self.assertRaises(ValueError):
+                    read_guests(self.csv)
+
+    def test_import_revokes_missing_and_updates_existing(self):
+        initial = [("G001", "H001", "Example", "Guest", "guest@example.com", 1),
+                   ("G002", "H002", "Another", "Guest", None, 1)]
+        import_guests(initial, self.database)
+        import_guests([("G001", "H001", "Updated", "Guest", "guest@example.com", 0)], self.database)
+        with closing(sqlite3.connect(self.database)) as connection:
+            self.assertEqual(connection.execute("SELECT guest_id, access_approved FROM guests ORDER BY guest_id").fetchall(), [("G001", 0), ("G002", 0)])
+            self.assertEqual(connection.execute("SELECT first_name FROM guests WHERE guest_id = 'G001'").fetchone()[0], "Updated")
+
+    def test_failed_import_rolls_back_revocation(self):
+        guest = ("G001", "H001", "Example", "Guest", None, 1)
+        import_guests([guest], self.database)
+        with self.assertRaises(sqlite3.IntegrityError):
+            import_guests([("G002", "H002", "Bad", "Guest", None, 5)], self.database)
+        with closing(sqlite3.connect(self.database)) as connection:
+            self.assertEqual(connection.execute("SELECT guest_id, access_approved FROM guests").fetchall(), [("G001", 1)])
+
+    def test_private_files_cannot_live_in_website(self):
+        with self.assertRaises(ValueError):
+            private_path(REPO_ROOT / "private" / "guests.csv")
+
+
+if __name__ == "__main__":
+    unittest.main()

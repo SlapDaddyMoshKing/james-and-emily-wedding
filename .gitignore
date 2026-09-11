@@ -5,6 +5,18 @@
 *.pem
 *.key
 
+# Guest information must never be published in this public repository.
+*.csv
+*.xlsx
+*.xls
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.sqlite3-*
+__pycache__/
+!templates/guest-list.example.csv
+
 # Dependencies and build output
 node_modules/
 dist/

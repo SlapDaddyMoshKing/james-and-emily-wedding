@@ -33,3 +33,7 @@ The starter page requests that search engines avoid indexing it. This does not r
 ## Future features
 
 Wedding details, travel information, photos, and registry links can be added here. RSVP submissions will need a separate form service or backend; this starter site does not collect responses. Keep guest lists and credentials out of the repository.
+
+## Guest list
+
+See [guest-list setup](docs/guest-list.md) for the private CSV format and local database importer. The live site is still public: guest authentication is not yet implemented. Keep real guest data outside this project folder.
