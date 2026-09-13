@@ -1,4 +1,5 @@
 {
+  "guestInfoUrl": "https://jfjd4a92w5.execute-api.us-east-2.amazonaws.com/guest-info",
   "invitationLookupUrl": "https://jfjd4a92w5.execute-api.us-east-2.amazonaws.com/lookup",
   "partyUrl": "https://jfjd4a92w5.execute-api.us-east-2.amazonaws.com/party",
   "rsvpUrl": "https://jfjd4a92w5.execute-api.us-east-2.amazonaws.com/rsvp"

@@ -1,59 +1,51 @@
 # Emily & James's Wedding Website
 
-A simple wedding website built with HTML and CSS. No dependencies or paid server required for the starter page.
+The site currently collects guest contact information before invitations go out. Guests open the link directly; no preloaded guest list, invitation check, account, or RSVP is required.
 
-## Preview locally
+**Website:** https://slapdaddymoshking.github.io/james-and-emily-wedding/
 
-Open `index.html` in a browser, or run:
+The form collects first initial, last name, email, and mailing address, plus optional phone and other household members. US addresses require a state and ZIP; international addresses can omit a region or postal code where not applicable. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
 
-```powershell
-python -m http.server 8080 --bind 127.0.0.1
-```
+## Where submissions go
 
-Then visit http://localhost:8080. Stop the server with Ctrl+C.
+GitHub Pages serves the static site from the root of `main`. `site-config.json` connects the form to the existing AWS API Gateway and Lambda in `us-east-2`. Lambda validates submissions and saves encrypted JSON objects under `guest-info/<random-reference>.json` in the private S3 bucket `wedding-site-guest-data-8f3d21`.
 
-## Hosting
+Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection does not read or modify the existing guest database or RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints are retained for later work.
 
-Repository: https://github.com/SlapDaddyMoshKing/james-and-emily-wedding
+## Download the collected information
 
-Website: https://slapdaddymoshking.github.io/james-and-emily-wedding/
-
-GitHub Pages publishes from the root directory of the `main` branch. To publish updates:
+Install the Python tools once:
 
 ```powershell
-git add .
-git commit -m "Update wedding website"
-git push
+python -m pip install -r requirements-dev.txt
 ```
 
-Pushing changes to `main` updates the live website automatically, usually within a few minutes. Hosting runs on GitHub, so your computer can be turned off.
-
-The starter page requests that search engines avoid indexing it. This does not restrict access: anyone with its public URL can view it.
-
-## Future features
-
-Wedding details, travel information, photos, and registry links can be added here. RSVP submissions will need a separate form service or backend; this starter site does not collect responses. Keep guest lists and credentials out of the repository.
-
-## Guest list
-
-See [guest-list setup](docs/guest-list.md) for the private CSV format, local database importer, and invitation lookup. The live site is still public, and the name lookup is now hosted on AWS (Lambda + API Gateway, reading guest data from a private S3 bucket) -- `site-config.json` points at it. This is a deliberate name-only check with no session or private-content gate; see the guest-list guide for the reasoning and current limitations, including that the `/welcome.html` redirect target has not been published yet. Keep real guest data outside this project folder.
-
-To test name lookup locally after importing the guest CSV, run `python -m backend.server` and visit http://127.0.0.1:8080. Names are checked on the server; a match does not grant access to private content. Run backend checks with `python -m unittest discover -s tests -v`.
-
-## Content and design
-
-Always put Emily's name before James's in displayed names and copy. The palette is light pastel blue and orange, with green and yellow accents.
-
-The public page contains a coming-soon message. Ceremony content is stored privately in `%LOCALAPPDATA%\WeddingSiteData\wedding-content.json` until authenticated hosting is ready. Rebuild the private local preview after styling or content changes:
+Then export using the existing AWS CLI profile:
 
 ```powershell
-python scripts/build_private_preview.py
+python scripts/export_guest_info.py
 ```
 
-Open `%LOCALAPPDATA%\WeddingSiteData\preview\index.html` in a browser. This preview is local only; publishing the ceremony details requires the approved-guest access control described in the guest-list guide.
+This saves all submissions to `%LOCALAPPDATA%\WeddingSiteData\guest-contact-details.csv`, outside this public repository. See [contact collection guide](docs/guest-information.md) for corrections, privacy, deployment, and export details.
 
-The guest welcome-page design is in `templates/welcome.html` and `welcome.css`. The builder substitutes private ceremony details and copies `%LOCALAPPDATA%\WeddingSiteData\assets\engagement.jpg` into the private preview. Open `%LOCALAPPDATA%\WeddingSiteData\preview\welcome.html` to review it. The photo is displayed at its full portrait aspect ratio on both desktop and mobile.
+## Preview and test
 
-This is a design preview for the page after guest verification. It is not a live redirect after name matching: email authentication and protected photo delivery are still required. Real ceremony details and the photo remain outside the public repository.
+```powershell
+python -m backend.server
+```
 
-For a complete **local design walkthrough**, run `python scripts/build_private_preview.py`, then `python -m backend.server --preview --port 8081`. Open http://127.0.0.1:8081, click RSVP, and submit an approved name. This local-only mode opens the welcome page and photo through a short-lived preview session. It is not email authentication and cannot be used for a public deployment. The default backend mode continues to return only invitation status. The published GitHub page still needs a hosted API and email sign-in.
+Visit http://127.0.0.1:8080. Local submissions save to `%LOCALAPPDATA%\WeddingSiteData\guest-info-local\`; they do not reach AWS. Use this server for a complete local walkthrough. Opening HTML directly from disk cannot submit the form.
+
+```powershell
+python -m unittest discover -s tests -v
+python -m playwright install chromium
+python tests/browser_guest_info.py
+```
+
+The browser checks require the local server above. They use fictional data, remove their own test submission, and save review screenshots outside the repository.
+
+## Publish
+
+Commit reviewed changes and push to `main`; GitHub Pages publishes the update. Backend changes must also be deployed to Lambda; see the [deployment instructions](docs/guest-information.md). A custom domain can be connected to GitHub Pages later, with its origin added to API Gateway CORS.
+
+The page requests no search indexing, but its URL is public. Only the submitted contact records stay private. Legacy guest-list tools are documented in [the archived guest-list guide](docs/guest-list.md).

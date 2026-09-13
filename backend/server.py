@@ -14,10 +14,13 @@ import unicodedata
 from wsgiref.simple_server import make_server
 
 from scripts.guest_list import DATA_DIR, REPO_ROOT, private_path
+from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 
 PUBLIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/index.html": ("index.html", "text/html; charset=utf-8"),
                 "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+                "/guest-info.js": ("guest-info.js", "text/javascript; charset=utf-8"),
+                "/welcome.html": ("welcome.html", "text/html; charset=utf-8"),
                 "/guest-lookup.js": ("guest-lookup.js", "text/javascript; charset=utf-8")}
 
 
@@ -66,9 +69,11 @@ class RateLimit:
             return True
 
 
-def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None):
+def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_dir=None):
     database = private_path(database)
     limiter = limiter or RateLimit()
+    submissions_dir = private_path(submissions_dir or DATA_DIR / "guest-info-local")
+    submission_lock = Lock()
 
     def application(environ, start_response):
         def respond(status, value, content_type="application/json; charset=utf-8", extra=()):
@@ -80,6 +85,36 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None):
 
         path = environ.get("PATH_INFO", "/")
         method = environ.get("REQUEST_METHOD", "GET")
+        if path == "/api/guest-info":
+            if method != "POST":
+                return respond("405 Method Not Allowed", {"error": "Use POST."}, extra=[("Allow", "POST")])
+            if not limiter.allow(environ.get("REMOTE_ADDR", "unknown")):
+                return respond("429 Too Many Requests", {"error": "Please try again later."}, extra=[("Retry-After", "600")])
+            if environ.get("CONTENT_TYPE", "").split(";")[0].strip().lower() != "application/json":
+                return respond("415 Unsupported Media Type", {"error": "Use JSON."})
+            try:
+                length = int(environ.get("CONTENT_LENGTH", "0") or "0")
+                if not 1 <= length <= MAX_BODY_BYTES:
+                    return respond("413 Content Too Large", {"error": "Invalid request size."})
+                data = validate_submission(json.loads(environ["wsgi.input"].read(length)))
+                with submission_lock:
+                    submissions_dir.mkdir(parents=True, exist_ok=True)
+                    target = submissions_dir / (data["submission_id"] + ".json")
+                    if target.exists():
+                        previous = json.loads(target.read_text(encoding="utf-8"))
+                        if any(previous.get(field) != value for field, value in data.items()):
+                            return respond("409 Conflict", {"error": "Please submit again with a new reference."})
+                    else:
+                        temporary = target.with_suffix(".tmp")
+                        temporary.write_text(json.dumps(make_record(data), ensure_ascii=False), encoding="utf-8")
+                        temporary.replace(target)
+            except InvalidSubmission as error:
+                return respond("400 Bad Request", {"error": str(error), "field": error.field})
+            except (ValueError, UnicodeError):
+                return respond("400 Bad Request", {"error": "Enter a valid request."})
+            except OSError:
+                return respond("503 Service Unavailable", {"error": "We couldn't save your details. Please try again shortly."})
+            return respond("200 OK", {"saved": True, "submission_id": data["submission_id"]})
         if path == "/api/invitations/lookup":
             if method != "POST":
                 return respond("405 Method Not Allowed", {"error": "Use POST."}, extra=[("Allow", "POST")])
@@ -104,7 +139,7 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None):
         if method != "GET":
             return respond("405 Method Not Allowed", {"error": "Use GET."}, extra=[("Allow", "GET")])
         if path == "/site-config.json":
-            return respond("200 OK", {"invitationLookupUrl": "/api/invitations/lookup"})
+            return respond("200 OK", {"guestInfoUrl": "/api/guest-info", "invitationLookupUrl": "/api/invitations/lookup"})
         if path in PUBLIC_FILES:
             filename, content_type = PUBLIC_FILES[path]
             return respond("200 OK", (REPO_ROOT / filename).read_bytes(), content_type)

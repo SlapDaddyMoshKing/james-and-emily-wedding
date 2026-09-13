@@ -1,5 +1,7 @@
 # Private guest-list groundwork
 
+> Archived invitation/RSVP documentation. As of 2026-09-13, the public site collects guest contact information without an invitation check. See [the current contact collection guide](guest-information.md). The older tools and RSVP data remain available for a later phase; the deployment and page descriptions below describe the previous site.
+
 ## Current status
 
 The CSV template, local database importer, and name lookup backend are implemented. The public site has an "RSVP" button and form. Its lookup is marked coming soon until the backend is hosted and connected. No guest authentication, email delivery, protected pages, or hosted database has been deployed. Importing the CSV does not change access to the current website.

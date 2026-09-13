@@ -1,46 +1,83 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="robots" content="noindex, nofollow">
-    <meta name="description" content="Celebrate with Emily and James. Check your invitation and RSVP.">
-    <meta name="theme-color" content="#dcecf6">
-    <title>Emily &amp; James</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="guest-lookup.js" defer></script>
-  </head>
-  <body>
-    <main>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="A little mail, a lot of love. Share your contact details with Emily and James for their wedding invitations.">
+  <meta name="theme-color" content="#dcecf6">
+  <title>Share your details · Emily &amp; James</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="guest-info.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#guest-information">Skip to the form</a>
+  <header class="site-header"><a href="./" aria-label="Emily and James home">E <span>&amp;</span> J</a><span class="eyebrow">Our wedding begins with you</span></header>
+  <main>
+    <section class="intro" aria-labelledby="page-title">
       <div class="petals" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <p class="eyebrow">We're getting married</p>
-      <h1>Emily <span>&amp;</span> James</h1>
+      <h1 id="page-title">Emily <span>&amp;</span> James</h1>
       <div class="divider" aria-hidden="true"></div>
-      <!-- wedding-content:start -->
-      <p class="message">Our next chapter is on its way.</p>
-      <!-- wedding-content:end -->
-      <section class="invitation" aria-labelledby="invitation-title">
-        <h2 id="invitation-title">A celebration with our favorite people</h2>
-        <button class="primary-button rsvp-button" id="open-lookup" type="button" aria-expanded="false" aria-controls="lookup-panel" hidden>RSVP</button>
-        <div id="lookup-panel" aria-hidden="true" inert hidden>
-          <div class="lookup-content">
-            <div class="lookup-inner">
-          <p class="details" id="lookup-help">Enter your first and last name as they appear on your invitation.</p>
-          <form id="guest-lookup" aria-describedby="lookup-help">
-            <div class="name-fields">
-              <label>First name<input name="first_name" autocomplete="given-name" maxlength="100" required></label>
-              <label>Last name<input name="last_name" autocomplete="family-name" maxlength="100" required></label>
-            </div>
-            <button class="primary-button" type="submit">Check my invitation</button>
-          </form>
-          <p id="lookup-status" class="details lookup-status" role="status" aria-live="polite"></p>
-          <p class="lookup-note">We only check your name against our invitation list -- we don't save anything you enter here.</p>
-            </div>
-          </div>
-        </div>
-        <noscript><p class="details">Please enable JavaScript to check your invitation.</p></noscript>
-      </section>
+      <h2>A little mail.<br>A lot of love.</h2>
+      <p class="intro-copy">We're gathering the details of our favorite people. Leave yours below so we can send a little wedding joy your way.</p>
+      <div class="little-note"><span aria-hidden="true">♡</span><p>For now, we're just collecting contact details. Invitations and RSVPs will come later.</p></div>
       <p class="signoff">With love, Emily &amp; James</p>
-    </main>
-  </body>
+    </section>
+    <section class="form-card" id="guest-information" aria-labelledby="form-title">
+      <div id="form-content">
+        <p class="eyebrow">Let's keep in touch</p>
+        <h2 id="form-title">Your details, please</h2>
+        <p class="form-intro">One form per household is perfect. Fields marked <span aria-hidden="true">*</span> are required.</p>
+        <form id="guest-info" aria-describedby="privacy-note" novalidate>
+          <fieldset>
+            <legend><span>01</span> A name for our list</legend>
+            <div class="fields name-fields">
+              <label>First initial <span aria-hidden="true">*</span><input name="first_initial" autocomplete="off" maxlength="8" placeholder="E" required aria-describedby="initial-help"><small id="initial-help">Just the first letter.</small></label>
+              <label>Last name <span aria-hidden="true">*</span><input name="last_name" autocomplete="family-name" maxlength="100" required></label>
+            </div>
+            <div class="fields">
+              <label>Email address <span aria-hidden="true">*</span><input name="email" type="email" autocomplete="email" maxlength="254" required></label>
+              <label>Phone number <small>(optional)</small><input name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend><span>02</span> Somewhere to send a little joy</legend>
+            <label>Street address <span aria-hidden="true">*</span><input name="address_line1" autocomplete="address-line1" maxlength="200" required></label>
+            <label>Apartment, suite, etc. <small>(optional)</small><input name="address_line2" autocomplete="address-line2" maxlength="200"></label>
+            <div class="fields">
+              <label>City / town <span aria-hidden="true">*</span><input name="city" autocomplete="address-level2" maxlength="100" required></label>
+              <label>State / province / region <small>(if applicable)</small><input name="region" autocomplete="address-level1" maxlength="100"></label>
+            </div>
+            <div class="fields">
+              <label>ZIP / postal code <small>(if applicable)</small><input name="postal_code" autocomplete="postal-code" maxlength="24"></label>
+              <label>Country <span aria-hidden="true">*</span><input name="country" autocomplete="country-name" value="United States" maxlength="100" required></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend><span>03</span> Anyone else at this address?</legend>
+            <label>Other household members <small>(optional)</small><textarea name="household_members" rows="3" maxlength="1000" aria-describedby="household-help" placeholder="For example: J. Smith, A. Smith"></textarea></label>
+            <p class="field-help" id="household-help">Use a first initial and last name for each person sharing this mailing address.</p>
+          </fieldset>
+          <div class="honeypot" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>
+          <p class="privacy-note" id="privacy-note">By sending this form, you're sharing these details with Emily &amp; James for wedding invitations and updates.</p>
+          <button class="primary-button" type="submit" disabled>Send our details <span aria-hidden="true">↗</span></button>
+          <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+          <noscript><p>Please enable JavaScript to send your details, or share them directly with Emily or James.</p></noscript>
+        </form>
+      </div>
+      <div id="confirmation" class="confirmation" tabindex="-1" hidden>
+        <div class="confirmation-mark" aria-hidden="true">♡</div>
+        <p class="eyebrow">A little closer to celebrating</p>
+        <h2>You're on our list.</h2>
+        <p>Thank you! Your contact details have been saved for Emily &amp; James.</p>
+        <p>We'll use them for invitations and wedding updates. We'll ask for your RSVP later.</p>
+        <p class="receipt" id="receipt"></p>
+        <button class="secondary-button" id="another-household" type="button">Send details for another household</button>
+        <p class="field-help">Need to correct something? Send the form again with your updated details.</p>
+      </div>
+    </section>
+  </main>
+  <footer>Made with love, for the people we love.</footer>
+</body>
 </html>

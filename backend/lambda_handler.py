@@ -1,4 +1,8 @@
-"""AWS Lambda entry point: hosted invitation lookup, party lookup, and RSVP.
+"""AWS Lambda entry point: contact collection and legacy invitation/RSVP APIs.
+
+POST /guest-info collects contact details without consulting the guest database.
+It writes encrypted, immutable guest-info/<uuid>.json objects in the same bucket.
+See docs/guest-information.md for the current guest-facing flow.
 
 Three endpoints, dispatched by path:
 - POST /lookup  {first_name, last_name} -> {"invited": true/false}
@@ -29,6 +33,7 @@ Configure via environment variables on the Lambda function:
 """
 
 from contextlib import closing
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -36,9 +41,10 @@ from pathlib import Path
 import sqlite3
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from backend.server import RateLimit, is_invited, normalize_name
+from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
@@ -159,7 +165,32 @@ def _rsvp(payload):
         return _respond(503, {"error": "We couldn't save your RSVP right now. Please try again shortly."})
 
 
-_ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp}
+def _guest_info(payload):
+    """Collect details without requiring an existing invitation or reading the list."""
+    try:
+        data = validate_submission(payload)
+    except InvalidSubmission as error:
+        return _respond(400, {"error": str(error), "field": error.field})
+    key = f"guest-info/{data['submission_id']}.json"
+    try:
+        try:
+            _s3.put_object(Bucket=BUCKET, Key=key,
+                Body=json.dumps(make_record(data), ensure_ascii=False).encode("utf-8"),
+                ContentType="application/json; charset=utf-8", ServerSideEncryption="AES256",
+                IfNoneMatch="*")
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") != "PreconditionFailed":
+                raise
+            # A lost response can be safely retried. A reused ID cannot replace data.
+            previous = json.loads(_s3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
+            if any(previous.get(field) != value for field, value in data.items()):
+                return _respond(409, {"error": "Please submit again with a new reference."})
+    except (ClientError, BotoCoreError, OSError, ValueError):
+        return _respond(503, {"error": "We couldn't save your details. Please try again shortly."})
+    return _respond(200, {"saved": True, "submission_id": data["submission_id"]})
+
+
+_ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp, "/guest-info": _guest_info}
 
 
 def handler(event, context):
@@ -174,14 +205,25 @@ def handler(event, context):
     if not _limiter.allow(http.get("sourceIp", "unknown")):
         return _respond(429, {"error": "Please try again later."}, {"Retry-After": "600"})
 
+    headers = {key.lower(): value for key, value in event.get("headers", {}).items()}
+    if route is _guest_info and headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        return _respond(415, {"error": "Use JSON."})
     try:
-        payload = json.loads(event.get("body") or "{}")
-    except ValueError:
+        body = event.get("body") or "{}"
+        if len(body) > MAX_BODY_BYTES * 2:
+            return _respond(413, {"error": "Request too large."})
+        body = base64.b64decode(body, validate=True) if event.get("isBase64Encoded") else body.encode("utf-8")
+        if len(body) > MAX_BODY_BYTES:
+            return _respond(413, {"error": "Request too large."})
+        payload = json.loads(body)
+    except (ValueError, UnicodeError, TypeError):
         return _respond(400, {"error": "Enter a valid request."})
 
+    if route is _guest_info:
+        return route(payload)
     try:
         _sync_database()
-    except OSError:
+    except (OSError, ClientError, BotoCoreError):
         return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
 
     return route(payload)
