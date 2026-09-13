@@ -31,7 +31,11 @@ def lookup_guest(database, identity):
     if len(matches) != 1:
         raise AccessDenied("More than one guest matches that name. Please contact Emily or James so we can help.")
     first, last_name_value, plus_one = matches[0]
-    return {"first_name": first, "last_name": last_name_value, "plus_one_allowed": bool(plus_one)}
+    # No Google Sheet in local development: nothing to prefill from, but the
+    # key must still be present -- the frontend requires it in every response.
+    empty_prefill = {"phone": "", "address_line1": "", "address_line2": "", "city": "", "region": "",
+        "postal_code": "", "plus_one_first_name": "", "plus_one_last_name": "", "guest_name_unknown": False}
+    return {"first_name": first, "last_name": last_name_value, "plus_one_allowed": bool(plus_one), "prefill": empty_prefill}
 
 def authorize_submission(database, payload):
     if not isinstance(payload, dict) or "lookup" not in payload:

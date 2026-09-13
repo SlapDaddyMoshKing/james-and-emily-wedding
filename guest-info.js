@@ -85,7 +85,10 @@ lookupForm.addEventListener("submit", async event => {
   status(lookupStatus, "Finding your invitation…");
   try {
     const result = await post("contactPartyUrl", candidate);
-    if (typeof result.first_name !== "string" || typeof result.last_name !== "string" || typeof result.plus_one_allowed !== "boolean") throw new Error("We couldn't confirm your invitation. Please try again.");
+    if (typeof result.first_name !== "string" || typeof result.last_name !== "string"
+        || typeof result.plus_one_allowed !== "boolean" || typeof result.prefill !== "object" || result.prefill === null) {
+      throw new Error("We couldn't confirm your invitation. Please try again.");
+    }
     identity = candidate;
     guest = result;
     lastAttempt = null;
@@ -96,7 +99,18 @@ lookupForm.addEventListener("submit", async event => {
     }
     form.elements.first_name.value = guest.first_name;
     form.elements.last_name.value = guest.last_name;
+    // Already-known details fill the form in but stay editable, so a guest
+    // only has to confirm or correct them rather than retype everything.
+    const prefill = guest.prefill;
+    for (const field of ["address_line1", "address_line2", "city", "region", "postal_code", "phone"]) {
+      if (typeof prefill[field] === "string" && prefill[field]) form.elements[field].value = prefill[field];
+    }
     plusOneSection.hidden = !guest.plus_one_allowed;
+    if (guest.plus_one_allowed) {
+      unknownCheckbox.checked = prefill.guest_name_unknown === true;
+      if (typeof prefill.plus_one_first_name === "string" && prefill.plus_one_first_name) form.elements.plus_one_first_name.value = prefill.plus_one_first_name;
+      if (typeof prefill.plus_one_last_name === "string" && prefill.plus_one_last_name) form.elements.plus_one_last_name.value = prefill.plus_one_last_name;
+    }
     updatePlusOneFields();
     document.querySelector("#party-summary").textContent = guest.plus_one_allowed
       ? "We found your invitation. It includes a plus-one."

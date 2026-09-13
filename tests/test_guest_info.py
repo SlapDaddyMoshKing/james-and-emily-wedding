@@ -11,6 +11,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from botocore.exceptions import ClientError
+from backend.contact_access import AccessDenied
 from backend.guest_info import InvalidSubmission, validate_submission
 from backend.server import RateLimit, create_app
 from scripts.export_guest_info import export_contacts
@@ -47,10 +48,16 @@ class MemoryS3:
 
     def paginate(self, **kwargs):
         # Separate pages exercise pagination, not just the first S3 page.
-        return [{"Contents": [{"Key": key}]} for key in self.records]
+        prefix = kwargs.get("Prefix", "")
+        return [{"Contents": [{"Key": key}]} for key in self.records if key.startswith(prefix)]
 
 
 class ContactTests(unittest.TestCase):
+    """Exercises Lambda orchestration (S3 receipts, tracker writes, rate
+    limiting, idempotency) with the Google Sheet lookup/authorization faked
+    out. The Sheet-reading logic itself (name matching, presence-based
+    approval, plus-one gating) is covered directly in tests/test_guest_sheet.py."""
+
     @classmethod
     def setUpClass(cls):
         with patch.dict(os.environ, {"GUEST_DATA_BUCKET": "test-bucket", "AWS_DEFAULT_REGION": "us-east-2"}), patch("boto3.client"):
@@ -58,24 +65,52 @@ class ContactTests(unittest.TestCase):
 
     def setUp(self):
         self.s3 = MemoryS3()
+        self.s3.records["google-service-account.json"] = b'{"fake": "credentials"}'
         self.hosted._limiter = RateLimit(limit=100)
         self.s3_patch = patch.object(self.hosted, "_s3", self.s3)
         self.s3_patch.start()
         self.addCleanup(self.s3_patch.stop)
-        self.folder = tempfile.TemporaryDirectory()
-        self.addCleanup(self.folder.cleanup)
-        database = Path(self.folder.name) / "guests.sqlite3"
-        import_guests([("G1", "H1", "Emma", "Example", None, 1, 1)], database)
-        self.database = database
-        self.db_patch = patch.object(self.hosted, "DATABASE_PATH", database)
-        self.db_patch.start()
-        self.addCleanup(self.db_patch.stop)
-        self.sync = patch.object(self.hosted, "_sync_database")
+        for name, value in [("GOOGLE_SHEET_ID", "sheet-id"), ("GOOGLE_SHEET_GID", "123")]:
+            sheet_patch = patch.object(self.hosted, name, value)
+            sheet_patch.start()
+            self.addCleanup(sheet_patch.stop)
         self.tracker = patch.object(self.hosted, "save_to_tracker")
         self.tracker_mock = self.tracker.start()
         self.addCleanup(self.tracker.stop)
-        self.sync.start()
-        self.addCleanup(self.sync.stop)
+        self.sheet_sync = patch.object(self.hosted, "sync_submission")
+        self.sheet_sync_mock = self.sheet_sync.start()
+        self.addCleanup(self.sheet_sync.stop)
+
+        self.approved = True
+        self.plus_one_allowed = True
+
+        def fake_lookup(service_account_key, sheet_id, sheet_gid, identity):
+            matches = (identity.get("first_initial", "").strip().lower() == "e"
+                and identity.get("last_name", "").strip().lower() == "example")
+            if not self.approved or not matches:
+                raise AccessDenied("We couldn't find that name on our invitation list. Check the spelling or contact Emily or James.")
+            return {"first_name": "Emma", "last_name": "Example", "plus_one_allowed": self.plus_one_allowed,
+                "prefill": {"phone": "", "address_line1": "", "address_line2": "", "city": "", "region": "",
+                    "postal_code": "", "plus_one_first_name": "", "plus_one_last_name": "", "guest_name_unknown": False}}
+
+        def fake_authorize(service_account_key, sheet_id, sheet_gid, payload):
+            if not isinstance(payload, dict) or "lookup" not in payload:
+                raise AccessDenied("Please check your name before sending your details.")
+            guest = fake_lookup(service_account_key, sheet_id, sheet_gid, payload["lookup"])
+            if payload.get("first_name") != guest["first_name"] or payload.get("last_name") != guest["last_name"]:
+                raise AccessDenied("Please use the guest name from your invitation.")
+            if not guest["plus_one_allowed"]:
+                plus_one_fields = ("plus_one_title", "plus_one_first_name", "plus_one_last_name", "plus_one_suffix")
+                if payload.get("guest_name_unknown") or any(payload.get(field) for field in plus_one_fields):
+                    raise AccessDenied("Your invitation does not include a plus-one.")
+            return {key: value for key, value in payload.items() if key != "lookup"}
+
+        self.lookup_patch = patch.object(self.hosted, "lookup_guest_from_sheet", side_effect=fake_lookup)
+        self.lookup_patch.start()
+        self.addCleanup(self.lookup_patch.stop)
+        self.authorize_patch = patch.object(self.hosted, "authorize_submission_from_sheet", side_effect=fake_authorize)
+        self.authorize_patch.start()
+        self.addCleanup(self.authorize_patch.stop)
 
     def request(self, payload, **overrides):
         event = {"requestContext": {"http": {"method": "POST", "path": "/guest-info", "sourceIp": "192.0.2.1"}},
@@ -102,7 +137,7 @@ class ContactTests(unittest.TestCase):
         status, response = self.request(sample())
         self.assertEqual(status, 503)
         self.assertNotIn("saved", response)
-        self.assertFalse(self.s3.records)
+        self.assertEqual(self.s3.writes, 0)
 
     def test_workbook_failure_can_retry_after_json_was_saved(self):
         data = sample()
@@ -121,7 +156,7 @@ class ContactTests(unittest.TestCase):
             {"plus_one_first_name": "Alex"}]:
             with self.subTest(changes=changes):
                 self.assertEqual(self.request({**sample(), **changes})[0], 400)
-        self.assertFalse(self.s3.records)
+        self.assertEqual(self.s3.writes, 0)
 
     def test_international_postal_code(self):
         data = {**sample(), "postal_code": "SW1A 1AA"}
@@ -134,7 +169,7 @@ class ContactTests(unittest.TestCase):
             self.assertEqual(self.request(payload)[0], 403)
         self.assertEqual(self.s3.writes, 0)
         self.tracker_mock.assert_not_called()
-        import_guests([("G1", "H1", "Emma", "Example", None, 0, 1)], self.database)
+        self.approved = False
         self.assertEqual(self.request(sample())[0], 403)
 
     def test_protocol_size_base64_and_rate_limit(self):
@@ -162,21 +197,12 @@ class ContactTests(unittest.TestCase):
             self.assertEqual(rows[0]["postal_code"], "01234")
             self.assertEqual(rows[0]["phone"], "'+15555550100")
 
-    def test_google_sheet_sync_is_optional_and_never_blocks_a_submission(self):
-        with patch.object(self.hosted, "sync_submission") as sync_mock:
-            self.assertEqual(self.request(sample())[0], 200)
-            sync_mock.assert_not_called()  # GOOGLE_SHEET_ID/GID unset: sync is off by default
-        self.s3.records["google-service-account.json"] = b'{"fake": "credentials"}'
-        with patch.object(self.hosted, "GOOGLE_SHEET_ID", "sheet-id"), \
-                patch.object(self.hosted, "GOOGLE_SHEET_GID", "123"), \
-                patch.object(self.hosted, "sync_submission") as sync_mock:
-            self.assertEqual(self.request(sample())[0], 200)
-            sync_mock.assert_called_once()
-            self.assertEqual(sync_mock.call_args[0][3]["first_name"], "Emma")
-        with patch.object(self.hosted, "GOOGLE_SHEET_ID", "sheet-id"), \
-                patch.object(self.hosted, "GOOGLE_SHEET_GID", "123"), \
-                patch.object(self.hosted, "sync_submission", side_effect=ValueError("boom")):
-            self.assertEqual(self.request(sample())[0], 200)
+    def test_google_sheet_required_but_sync_failure_never_blocks_a_submission(self):
+        with patch.object(self.hosted, "GOOGLE_SHEET_ID", None):
+            self.assertEqual(self.request(sample())[0], 503)
+        self.sheet_sync_mock.side_effect = ValueError("boom")
+        self.assertEqual(self.request(sample())[0], 200)
+        self.sheet_sync_mock.assert_called_once()
 
     def test_plus_one_named_unknown_and_not_allowed(self):
         data = sample()
@@ -189,7 +215,7 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(status, 200)
         stored = json.loads(self.s3.records[f"guest-info/{data['submission_id']}.json"])
         self.assertEqual(stored["name_line_two"], "and Guest")
-        import_guests([("G1", "H1", "Emma", "Example", None, 1, 0)], self.database)
+        self.plus_one_allowed = False
         self.assertEqual(self.request({**sample(), "guest_name_unknown": True})[0], 403)
 
     def test_privileged_test_records_are_excluded_from_export(self):
@@ -200,9 +226,13 @@ class ContactTests(unittest.TestCase):
             self.assertEqual(export_contacts(self.s3, Path(directory) / "contacts.csv"), 0)
 
     def test_local_form_checks_invitation_and_no_public_records(self):
+        """The local dev server (backend.server) is unaffected by the hosted
+        Lambda's Google Sheet switch -- it still checks a local guests.sqlite3."""
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            app = create_app(self.database, submissions_dir=folder / "contacts")
+            database = folder / "guests.sqlite3"
+            import_guests([("G1", "H1", "Emma", "Example", None, 1, 1)], database)
+            app = create_app(database, submissions_dir=folder / "contacts")
             data = sample()
             def request(path, method="POST", payload=data):
                 body = json.dumps(payload).encode()

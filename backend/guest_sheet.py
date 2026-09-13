@@ -1,17 +1,31 @@
-"""Best-effort sync of a submission into the human-maintained Google Sheet.
+"""The human-maintained Google Sheet: both the live invitation list and the
+best-effort destination for submitted contact details.
 
-The private Excel tracker (backend/guest_tracker.py) is the authoritative,
-atomic record of every submission. This module updates the matching row in
-a separate, manually-maintained planning spreadsheet so it stays roughly
-current -- it is read/edited by people, not machine-generated, so a failure
-here (a missing row, a renamed column, an expired credential) must never
-block or fail the guest's submission. Callers should catch broadly around
-this module and only log, never raise to the guest-facing response.
+Approval is presence-based: a row with both First Initial and Last Name
+filled in is what makes that guest approved -- there is no separate
+access_approved column. lookup_guest_from_sheet/authorize_submission_from_sheet
+re-read the sheet on every call (no caching), so an edit to the sheet takes
+effect on the very next request -- matching the rest of this project's
+"always recheck the current source" trust model. A guest's own row can
+already hold an address, phone, or plus-one name filled in by the couple
+ahead of time; lookup_guest_from_sheet returns that under "prefill" so the
+form can offer it back to the guest instead of asking again.
+
+Once a submission is authorized and safely saved to the private Excel
+tracker (backend/guest_tracker.py, still the authoritative, atomic record),
+sync_submission updates that same row with what was actually submitted.
+That direction is best-effort only: a missing row, a renamed column, or an
+expired credential there must never block or fail the guest's submission.
+Reading for lookup/authorization is not best-effort -- a failure there
+should surface as "temporarily unavailable", the same as it would if
+guests.sqlite3 were unreachable.
 """
 import json
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+from backend.contact_access import AccessDenied, normalized
 
 from google.oauth2.service_account import Credentials
 
@@ -157,3 +171,77 @@ def sync_submission(service_account_json, spreadsheet_id, sheet_gid, data):
         update["range"] = f"{title}!{update['range']}"
     _api_request(token, spreadsheet_id, "/values:batchUpdate", method="POST",
         payload={"valueInputOption": "RAW", "data": updates})
+
+
+# Sheet header -> prefill field, using the values a guest already submitted
+# once already share with those in COLUMN_FIELDS. "Plus One?" and the name
+# columns are handled separately below, not through this table.
+PREFILL_FIELDS = {
+    "phone number": "phone", "address line one": "address_line1", "address line two": "address_line2",
+    "city": "city", "state": "region", "zip code": "postal_code",
+}
+
+
+def _row_as_dict(header, row):
+    return {label.strip().lower(): (row[index] if index < len(row) else "") for index, label in enumerate(header)}
+
+
+def find_guest(service_account_json, spreadsheet_id, sheet_gid, first_initial, last_name):
+    """Presence-based lookup: a matching row is what makes a guest approved.
+    Returns None if no row matches; raises SheetSyncError, or lets a network
+    error propagate, if the sheet itself couldn't be read."""
+    token = _access_token(service_account_json)
+    title = _sheet_title(token, spreadsheet_id, sheet_gid)
+    values = _api_request(token, spreadsheet_id, f"/values/{quote(title)}")
+    rows = values.get("values", [])
+    row_number = find_row(rows, first_initial, last_name)
+    if row_number is None:
+        return None
+    row = _row_as_dict(rows[0], rows[row_number - 1])
+    # Fall back to the sheet's own First Initial/Last Name cells (whatever
+    # casing the couple typed there), never the normalized/lowercased search
+    # terms -- those are for matching only, not for display.
+    first = row.get("guest first name", "").strip() or row.get("first initial", "").strip()
+    last = row.get("guest last name", "").strip() or row.get("last name", "").strip()
+    plus_one_allowed = row.get("plus one?", "").strip().casefold() == "yes"
+    plus_one_first = row.get("plus one first name", "").strip()
+    plus_one_last = row.get("plus one last name", "").strip()
+    guest_name_unknown = plus_one_first.casefold() == "unknown" or plus_one_last.casefold() == "unknown"
+    prefill = {field: row.get(label, "").strip() for label, field in PREFILL_FIELDS.items()}
+    prefill["guest_name_unknown"] = guest_name_unknown
+    prefill["plus_one_first_name"] = "" if guest_name_unknown else plus_one_first
+    prefill["plus_one_last_name"] = "" if guest_name_unknown else plus_one_last
+    return {"first_name": first, "last_name": last, "plus_one_allowed": plus_one_allowed, "prefill": prefill}
+
+
+def lookup_guest_from_sheet(service_account_json, spreadsheet_id, sheet_gid, identity):
+    """Sheet-backed equivalent of contact_access.lookup_guest."""
+    if not isinstance(identity, dict) or set(identity) != {"first_initial", "last_name"}:
+        raise ValueError("Please enter your first initial and last name.")
+    initial = normalized(identity["first_initial"]).removesuffix(".")
+    last = normalized(identity["last_name"])
+    if len(initial) != 1 or not initial.isalpha():
+        raise ValueError("Please enter just the first letter of your first name.")
+    guest = find_guest(service_account_json, spreadsheet_id, sheet_gid, initial, last)
+    if guest is None:
+        raise AccessDenied("We couldn't find that name on our invitation list. Check the spelling or contact Emily or James.")
+    return guest
+
+
+def authorize_submission_from_sheet(service_account_json, spreadsheet_id, sheet_gid, payload):
+    """Sheet-backed equivalent of contact_access.authorize_submission."""
+    if not isinstance(payload, dict) or "lookup" not in payload:
+        raise AccessDenied("Please check your name before sending your details.")
+    guest = lookup_guest_from_sheet(service_account_json, spreadsheet_id, sheet_gid, payload["lookup"])
+    try:
+        matches = (normalized(payload.get("first_name", "")) == normalized(guest["first_name"])
+            and normalized(payload.get("last_name", "")) == normalized(guest["last_name"]))
+    except ValueError:
+        matches = False
+    if not matches:
+        raise AccessDenied("Please use the guest name from your invitation.")
+    if not guest["plus_one_allowed"]:
+        plus_one_fields = ("plus_one_title", "plus_one_first_name", "plus_one_last_name", "plus_one_suffix")
+        if payload.get("guest_name_unknown") or any(payload.get(field) for field in plus_one_fields):
+            raise AccessDenied("Your invitation does not include a plus-one.")
+    return {key: value for key, value in payload.items() if key != "lookup"}

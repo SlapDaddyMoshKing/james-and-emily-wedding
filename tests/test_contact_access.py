@@ -18,7 +18,10 @@ class AccessTests(unittest.TestCase):
 
     def test_initial_period_case_whitespace_and_plus_one_flag(self):
         result = lookup_guest(self.database, {"first_initial": " j. ", "last_name": " SAMPLE "})
-        self.assertEqual(result, {"first_name": "Jordan", "last_name": "Sample", "plus_one_allowed": True})
+        self.assertEqual(result["first_name"], "Jordan")
+        self.assertEqual(result["last_name"], "Sample")
+        self.assertTrue(result["plus_one_allowed"])
+        self.assertIn("prefill", result)
         self.assertFalse(lookup_guest(self.database, {"first_initial": "S", "last_name": "Example"})["plus_one_allowed"])
 
     def test_revoked_and_unknown(self):

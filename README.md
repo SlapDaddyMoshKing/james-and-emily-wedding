@@ -1,6 +1,6 @@
 # Emily & James's Wedding Website
 
-The site currently collects guest contact information before invitations go out. Guests first enter their first initial and last name. The private approved guest list determines who is included on their invitation before contact fields appear. No account or RSVP is required.
+The site currently collects guest contact information before invitations go out. Guests first enter their first initial and last name. A shared, private Google Sheet -- edited directly by Emily and James, live, no publish step -- determines who is included on their invitation before contact fields appear. No account or RSVP is required.
 
 **Website:** https://slapdaddymoshking.github.io/james-and-emily-wedding/
 
@@ -10,7 +10,7 @@ After matching, a guest fills out one form for their whole invitation: a title (
 
 GitHub Pages serves the static site from the root of `main`. `site-config.json` connects the form to the existing AWS API Gateway and Lambda in `us-east-2`. Lambda validates submissions and appends one guest row to `welcome/Guest Tracker.xlsx` in the private S3 bucket `wedding-site-guest-data-8f3d21`. It also keeps encrypted JSON submission receipts under `guest-info/`. Success appears only after the Excel write succeeds.
 
-Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection reads the private guest database to enforce the invitation and plus-one list. It does not modify that database or RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints are retained for later work.
+Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection reads the shared Google Sheet live, on every lookup and submission, to enforce the invitation and plus-one list -- there is no separate database or publish step for this. It does not modify RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints (a separate, older feature using a locally-published guest database) are retained for later work.
 
 ## Open the collected information
 
@@ -34,7 +34,7 @@ This saves all submissions to `%LOCALAPPDATA%\WeddingSiteData\guest-contact-deta
 
 ## Control invitations and plus-ones
 
-Keep one approved row per guest in the private guest-list CSV, with a `plus_one` column (`yes`/`no`) marking who the form offers a plus-one to. Publish changes with `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`. See [invitation setup](docs/guest-information.md#invitation-access) for details. Contact spreadsheet submissions do not grant invitations.
+Edit the shared Google Sheet directly -- a row with both `First Initial` and `Last Name` filled in is what invites that guest; `Plus One?` set to `Yes` offers them a plus-one. Takes effect on the very next lookup, no publish step. See [invitation setup](docs/guest-information.md#invitation-access-the-shared-google-sheet-is-the-live-guest-list) for the full column reference and one-time setup. (The CSV/`publish_guest_list.py` pipeline still exists, but only controls the separate, archived RSVP feature -- not this form.)
 
 ## See submissions as they arrive
 
@@ -46,7 +46,7 @@ Run `python scripts/owner_dashboard.py` to open a private, local-only viewer tha
 python -m backend.server
 ```
 
-Visit http://127.0.0.1:8080. Local submissions save to `%LOCALAPPDATA%\WeddingSiteData\guest-info-local\`; they do not reach AWS. Use this server for a complete local walkthrough. Opening HTML directly from disk cannot submit the form.
+Visit http://127.0.0.1:8080. Local submissions save to `%LOCALAPPDATA%\WeddingSiteData\guest-info-local\`; they do not reach AWS. This local server checks a local `guests.sqlite3` for invitations, not the live Google Sheet (so it works offline) -- see [local development](docs/guest-information.md#local-development). Opening HTML directly from disk cannot submit the form.
 
 ```powershell
 python -m unittest discover -s tests -v

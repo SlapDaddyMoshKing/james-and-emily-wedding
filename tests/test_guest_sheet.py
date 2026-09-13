@@ -4,8 +4,10 @@ from unittest.mock import patch
 
 import rsa
 
+from backend.contact_access import AccessDenied
 from backend.guest_sheet import (
-    SheetSyncError, build_updates, find_row, sync_submission,
+    SheetSyncError, authorize_submission_from_sheet, build_updates, find_guest, find_row,
+    lookup_guest_from_sheet, sync_submission,
 )
 
 _KEY = rsa.newkeys(2048)[1]
@@ -133,6 +135,102 @@ class SyncSubmissionTests(unittest.TestCase):
         with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
             sync_submission(service_account_json(), "sheet-id", "793360834", self.data())
         self.assertFalse(any(url.endswith("/values:batchUpdate") for _, url, _ in calls))
+
+
+class FindGuestTests(unittest.TestCase):
+    def test_returns_prefill_and_falls_back_to_initial_for_missing_name(self):
+        rows = [HEADER, ["J", "Boudreaux", "Yes", "", "", "", "", "918-397-1026", "j@example.com",
+                          "123 Main St", "", "Springdale", "Arkansas", "72762"]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            guest = find_guest(service_account_json(), "sheet-id", "793360834", "J", "Boudreaux")
+        self.assertEqual(guest["first_name"], "J")  # no Guest First Name filled: falls back to the initial
+        self.assertEqual(guest["last_name"], "Boudreaux")
+        self.assertTrue(guest["plus_one_allowed"])
+        self.assertEqual(guest["prefill"]["phone"], "918-397-1026")
+        self.assertEqual(guest["prefill"]["address_line1"], "123 Main St")
+        self.assertEqual(guest["prefill"]["region"], "Arkansas")
+        self.assertFalse(guest["prefill"]["guest_name_unknown"])
+
+    def test_uses_full_name_and_marks_unknown_plus_one(self):
+        rows = [HEADER, ["J", "Boudreaux", "Yes", "James", "Boudreaux", "Unknown", "Unknown",
+                          "", "", "", "", "", "", ""]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            guest = find_guest(service_account_json(), "sheet-id", "793360834", "J", "Boudreaux")
+        self.assertEqual(guest["first_name"], "James")
+        self.assertTrue(guest["prefill"]["guest_name_unknown"])
+        self.assertEqual(guest["prefill"]["plus_one_first_name"], "")
+
+    def test_no_match_returns_none(self):
+        rows = [HEADER, ["Z", "Nobody", "No", "", "", "", "", "", "", "", "", "", "", ""]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            self.assertIsNone(find_guest(service_account_json(), "sheet-id", "793360834", "J", "Boudreaux"))
+
+    def test_missing_name_falls_back_to_sheets_own_casing_not_the_search_terms(self):
+        # A search normalizes to lowercase for matching, but a fallback display
+        # name should use whatever casing the couple actually typed in the sheet.
+        rows = [HEADER, ["E", "Wright", "No", "", "", "", "", "", "", "", "", "", "", ""]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            guest = find_guest(service_account_json(), "sheet-id", "793360834", "e", "wright")
+        self.assertEqual(guest["first_name"], "E")
+        self.assertEqual(guest["last_name"], "Wright")
+
+
+class LookupGuestFromSheetTests(unittest.TestCase):
+    def test_valid_identity_returns_guest(self):
+        rows = [HEADER, ["J", "Boudreaux", "Yes", "James", "Boudreaux", "", "", "", "", "", "", "", "", ""]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            guest = lookup_guest_from_sheet(service_account_json(), "sheet-id", "793360834",
+                {"first_initial": " j. ", "last_name": " BOUDREAUX "})
+        self.assertEqual(guest["first_name"], "James")
+
+    def test_unknown_name_raises_access_denied(self):
+        rows = [HEADER, ["Z", "Nobody", "No", "", "", "", "", "", "", "", "", "", "", ""]]
+        calls = []
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(rows, calls)):
+            with self.assertRaises(AccessDenied):
+                lookup_guest_from_sheet(service_account_json(), "sheet-id", "793360834",
+                    {"first_initial": "J", "last_name": "Boudreaux"})
+
+    def test_malformed_identity_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            lookup_guest_from_sheet(service_account_json(), "sheet-id", "793360834",
+                {"first_initial": "Jordan", "last_name": "Sample"})
+
+
+class AuthorizeSubmissionFromSheetTests(unittest.TestCase):
+    def rows(self, plus_one="Yes"):
+        return [HEADER, ["J", "Boudreaux", plus_one, "James", "Boudreaux", "", "", "", "", "", "", "", "", ""]]
+
+    def test_matching_name_is_authorized(self):
+        calls = []
+        payload = {"lookup": {"first_initial": "J", "last_name": "Boudreaux"}, "first_name": "James", "last_name": "Boudreaux"}
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(self.rows(), calls)):
+            result = authorize_submission_from_sheet(service_account_json(), "sheet-id", "793360834", payload)
+        self.assertEqual(result, {"first_name": "James", "last_name": "Boudreaux"})
+
+    def test_mismatched_name_denied(self):
+        calls = []
+        payload = {"lookup": {"first_initial": "J", "last_name": "Boudreaux"}, "first_name": "Someone", "last_name": "Else"}
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(self.rows(), calls)):
+            with self.assertRaises(AccessDenied):
+                authorize_submission_from_sheet(service_account_json(), "sheet-id", "793360834", payload)
+
+    def test_plus_one_rejected_when_not_allowed(self):
+        calls = []
+        payload = {"lookup": {"first_initial": "J", "last_name": "Boudreaux"}, "first_name": "James",
+                   "last_name": "Boudreaux", "guest_name_unknown": True}
+        with patch("backend.guest_sheet.urlopen", side_effect=fake_urlopen(self.rows(plus_one="No"), calls)):
+            with self.assertRaises(AccessDenied):
+                authorize_submission_from_sheet(service_account_json(), "sheet-id", "793360834", payload)
+
+    def test_missing_lookup_denied(self):
+        with self.assertRaises(AccessDenied):
+            authorize_submission_from_sheet(service_account_json(), "sheet-id", "793360834", {"first_name": "James"})
 
 
 if __name__ == "__main__":

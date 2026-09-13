@@ -1,12 +1,18 @@
 """AWS Lambda entry point: contact collection and legacy invitation/RSVP APIs.
 
-POST /contact-party matches first initial and surname to an approved invitation.
-POST /guest-info rechecks that invitation and the selected guest before saving.
-It appends one row to welcome/Guest Tracker.xlsx and retains an encrypted JSON
-receipt. Success is returned only once the workbook write is confirmed.
-See docs/guest-information.md for the current guest-facing flow.
+POST /contact-party and POST /guest-info are read live from the shared
+Google Sheet on every call (see backend/guest_sheet.py) -- presence of a row
+matching first initial and last name is what makes someone approved, so an
+edit to the sheet takes effect on the very next request. No separate
+publish step, and no local database, is involved for these two routes.
+POST /guest-info rechecks that same row before saving, appends one row to
+welcome/Guest Tracker.xlsx (the authoritative record), retains an encrypted
+JSON receipt, and then best-effort mirrors what was submitted back onto
+that guest's row in the sheet. See docs/guest-information.md.
 
-Three endpoints, dispatched by path:
+/lookup, /party, and /rsvp are a separate, older, retained-for-later
+feature still backed by guests.sqlite3 (published from a CSV -- see
+docs/guest-list.md) and unrelated to the Google Sheet above:
 - POST /lookup  {first_name, last_name} -> {"invited": true/false}
   Pure name check. Grants no session, serves no content.
 - POST /party   {first_name, last_name} -> {"members": [...]}
@@ -26,12 +32,16 @@ RSVP responses are stored as one small object per guest
 that re-importing the guest CSV (which replaces the whole guests table)
 never wipes out RSVPs already collected.
 
-guests.sqlite3 is re-downloaded from S3 on every invocation (it's tiny), so
-a guest-list re-import -- which can revoke access -- takes effect
-immediately, matching backend/server.py's documented local behavior.
+guests.sqlite3 is re-downloaded from S3 on every /lookup, /party, or /rsvp
+invocation (it's tiny), so a guest-list re-import -- which can revoke
+access -- takes effect immediately, matching backend/server.py's
+documented local behavior.
 
 Configure via environment variables on the Lambda function:
-  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3 and rsvps/*
+  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3, rsvps/*, and the
+                       Google service account key
+  GOOGLE_SHEET_ID      The shared sheet's ID, from its URL
+  GOOGLE_SHEET_GID     The specific tab's gid, from its URL
 """
 
 from contextlib import closing
@@ -41,6 +51,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from urllib.error import URLError
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -48,8 +59,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 from backend.guest_tracker import save_to_tracker
-from backend.guest_sheet import sync_submission
-from backend.contact_access import AccessDenied, authorize_submission, lookup_guest
+from backend.guest_sheet import SheetSyncError, authorize_submission_from_sheet, lookup_guest_from_sheet, sync_submission
+from backend.contact_access import AccessDenied
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
@@ -173,17 +184,33 @@ def _rsvp(payload):
         return _respond(503, {"error": "We couldn't save your RSVP right now. Please try again shortly."})
 
 
+def _google_sheet_configured():
+    return bool(GOOGLE_SHEET_ID and GOOGLE_SHEET_GID)
+
+
+def _fetch_service_account_key():
+    return _s3.get_object(Bucket=BUCKET, Key=GOOGLE_SERVICE_ACCOUNT_KEY)["Body"].read()
+
+
 def _guest_info(payload):
-    """Recheck the current invitation before accepting any contact information."""
+    """Recheck the current invitation -- live against the Google Sheet, not a
+    separately-published database -- before accepting any contact information."""
+    if not _google_sheet_configured():
+        return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     try:
-        data = validate_submission(authorize_submission(DATABASE_PATH, payload))
+        service_account_key = _fetch_service_account_key()
+    except (ClientError, BotoCoreError, OSError):
+        return _respond(503, {"error": "The invitation list is temporarily unavailable."})
+    try:
+        data = validate_submission(authorize_submission_from_sheet(
+            service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, payload))
     except AccessDenied as error:
         return _respond(403, {"error": str(error)})
     except InvalidSubmission as error:
         return _respond(400, {"error": str(error), "field": error.field})
     except ValueError as error:
         return _respond(400, {"error": str(error)})
-    except sqlite3.Error:
+    except (SheetSyncError, URLError, OSError):
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     key = f"guest-info/{data['submission_id']}.json"
     record = make_record(data)
@@ -203,32 +230,32 @@ def _guest_info(payload):
         save_to_tracker(_s3, BUCKET, record)
     except (ClientError, BotoCoreError, OSError, ValueError):
         return _respond(503, {"error": "We couldn't save your details. Please try again shortly."})
-    _sync_to_google_sheet(record)
+    _sync_to_google_sheet(service_account_key, record)
     return _respond(200, {"saved": True, "submission_id": data["submission_id"]})
 
 
-def _sync_to_google_sheet(record):
+def _sync_to_google_sheet(service_account_key, record):
     """Best-effort only: the private Excel tracker above is the authoritative
     record, already saved by this point. A human-maintained planning sheet
     can have a missing row, a renamed column, or an expired credential --
     none of that should turn into a failed submission for the guest."""
-    if not (GOOGLE_SHEET_ID and GOOGLE_SHEET_GID):
-        return
     try:
-        service_account_json = _s3.get_object(Bucket=BUCKET, Key=GOOGLE_SERVICE_ACCOUNT_KEY)["Body"].read()
-        sync_submission(service_account_json, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, record)
+        sync_submission(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, record)
     except Exception as error:  # noqa: BLE001 -- deliberately broad, see docstring
         print(f"Google Sheet sync failed for submission {record.get('submission_id')}: {error}")
 
 
 def _contact_party(payload):
+    if not _google_sheet_configured():
+        return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     try:
-        return _respond(200, lookup_guest(DATABASE_PATH, payload))
+        service_account_key = _fetch_service_account_key()
+        return _respond(200, lookup_guest_from_sheet(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, payload))
     except AccessDenied as error:
         return _respond(403, {"error": str(error)})
     except ValueError as error:
         return _respond(400, {"error": str(error)})
-    except sqlite3.Error:
+    except (ClientError, BotoCoreError, SheetSyncError, URLError, OSError):
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
 
 
@@ -261,9 +288,10 @@ def handler(event, context):
     except (ValueError, UnicodeError, TypeError):
         return _respond(400, {"error": "Enter a valid request."})
 
-    try:
-        _sync_database()
-    except (OSError, ClientError, BotoCoreError):
-        return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
+    if route in (_lookup, _party, _rsvp):
+        try:
+            _sync_database()
+        except (OSError, ClientError, BotoCoreError):
+            return _respond(503, {"error": "Invitation lookup is temporarily unavailable."})
 
     return route(payload)

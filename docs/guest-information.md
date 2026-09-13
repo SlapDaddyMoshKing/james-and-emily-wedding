@@ -1,47 +1,44 @@
 # Guest Tracker integration
 
-After the invitation lookup, the contact form matches `s3://wedding-site-guest-data-8f3d21/welcome/Guest Tracker.xlsx`, sheet **GUEST ADDRESSING**. Each submitted form adds exactly one guest row: one envelope, one mailing address. The form collects a title (optional), first and last name (from the invitation, not editable), a suffix (optional), and one address. If the matched guest's `plus_one` flag is set, the form also offers a plus-one name (title/first/last/suffix, all optional except when named) or a "Guest Name Unknown" checkbox for when the guest hasn't decided who they're bringing yet. The submitted name and plus-one name are combined into "Name Line One" / "Name Line Two" ("and Guest" when unknown) when the row is written to the workbook. Address line one, city, state/region, and ZIP/postal code are required; address line two and phone are optional. There is no per-guest address -- a household with a plus-one still shares one address.
+After the invitation lookup, the contact form matches `s3://wedding-site-guest-data-8f3d21/welcome/Guest Tracker.xlsx`, sheet **GUEST ADDRESSING**. Each submitted form adds exactly one guest row: one envelope, one mailing address. The form collects a title (optional), first and last name (from the invitation, not editable), a suffix (optional), and one address. If the matched guest's plus-one flag is set, the form also offers a plus-one name (title/first/last/suffix, all optional except when named) or a "Guest Name Unknown" checkbox for when the guest hasn't decided who they're bringing yet. The submitted name and plus-one name are combined into "Name Line One" / "Name Line Two" ("and Guest" when unknown) when the row is written to the workbook. Address line one, city, state/region, and ZIP/postal code are required; address line two and phone are optional. There is no per-guest address -- a household with a plus-one still shares one address.
 
 The workbook's nine columns and existing guest data are preserved. Styled empty rows are used after the last row containing data, rather than skipping hundreds of template rows. ZIP codes and phone numbers are stored as text. All submitted values are literal text, never spreadsheet formulas. Names are not used to deduplicate different guests.
 
-## Optional: syncing to the shared Google Sheet
+## Invitation access: the shared Google Sheet is the live guest list
 
-The Excel workbook above is the authoritative record of every submission, saved atomically before anything else happens. Separately, and best-effort only, a submission can also update the matching row in the shared Google Sheet used to plan the guest list -- so it's not just the source for who's invited, but also fills in with what they actually submitted. A failure here (a missing row, a renamed column, an expired credential) is logged to CloudWatch and never fails or blocks the guest's submission; the workbook write above has already succeeded by that point.
+`POST /contact-party` and `POST /guest-info` are answered by reading the shared Google Sheet directly, live, on every request -- there is no separate publish step and no local database for this flow. Approval is **presence-based**: a row with both `First Initial` and `Last Name` filled in is what makes that guest approved. There is no separate approved/not-approved column -- adding a row invites someone, and editing or removing one takes effect on their very next lookup attempt. This is deliberately consistent with the rest of this project's "always recheck the current source" trust model (see [guest-list.md](guest-list.md)).
 
-It updates the row matching the guest's first initial and last name, writing only the columns it has data for and never touching others -- so a column like `Email Address` (never collected by the form) or your own notes are left alone. It writes `Guest First Name`, `Guest Last Name`, `Plus One First Name`, `Plus One Last Name` (or `Unknown` when the guest checked "Guest Name Unknown"), `Phone Number`, `Address Line One`, `Address Line Two`, `City`, `State`, `Zip Code` -- matched case/whitespace-insensitively, so renaming `State ` to `State` or reordering columns doesn't break it. It's disabled unless configured (see below), and requires the row already exist -- it never adds a guest to the sheet.
+A guest's own row can already hold information the couple knows ahead of time -- an address, a phone number, a plus-one's name -- and the lookup returns that under `prefill` so the contact form can offer it back to the guest to confirm or correct, instead of asking them to type it from scratch. It reads:
 
-To turn it on:
+| Sheet column | Used for |
+| --- | --- |
+| `First Initial`, `Last Name` | Matching only (case/whitespace-insensitive, an optional trailing period on the initial). Presence of a matching row is what approves the guest. |
+| `Guest First Name`, `Guest Last Name` | The name shown back to the guest on the form. Falls back to the sheet's own `First Initial`/`Last Name` cells if left blank (so an older mailing-list row with only an initial still works, just less nicely). |
+| `Plus One?` | `Yes` (case-insensitive) offers the plus-one section on the form; anything else hides it and rejects any plus-one fields submitted. |
+| `Plus One First Name`, `Plus One Last Name` | Prefills the plus-one section. The literal value `Unknown` in either pre-checks "Guest Name Unknown" instead. |
+| `Phone Number`, `Address Line One`, `Address Line Two`, `City`, `State`, `Zip Code` | Prefills the matching form field. |
+| `Email Address` | Never read or written by the site. |
 
-1. In Google Cloud Console, enable the **Google Sheets API** and create a **service account**; download its JSON key.
+Column names are matched case/whitespace-insensitively, and in any order -- other columns (your own notes, phone, whatever) are ignored. Bypassing the browser lookup or renaming the guest doesn't grant another invitation or unlock a plus-one that isn't on their row: `POST /guest-info` re-reads the sheet itself before accepting a submission, rechecking the name match and the plus-one flag exactly as the lookup did.
+
+**This is not email verification or a login session** -- approval is a name match, as requested for this project.
+
+### Best-effort: submissions write back to the same row
+
+Once a submission is authorized and safely saved to the private Excel tracker above (still the authoritative, atomic record -- see "Reliable saves" below), it also updates that guest's row in the sheet with `Guest First Name`, `Guest Last Name`, `Plus One First Name`/`Last Name` (or `Unknown`), `Phone Number`, and the address columns -- writing only the columns it has data for, never touching `Email Address` or anything else. This direction is best-effort only: a missing row, a renamed column, or an expired credential is logged to CloudWatch and never fails or blocks the guest's submission, since the workbook write has already succeeded by that point.
+
+### Setup
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), enable the **Google Sheets API** and create a **service account**; download its JSON key.
 2. Share the Google Sheet with that service account's email (looks like `xxx@yyy.iam.gserviceaccount.com`) as an **Editor**.
 3. Upload the key to the private bucket: `aws s3 cp service-account.json s3://wedding-site-guest-data-8f3d21/google-service-account.json --profile wedding-site --sse AES256`.
 4. Set two environment variables on the `wedding-lookup` Lambda: `GOOGLE_SHEET_ID` (from the sheet's URL, the long ID between `/d/` and `/edit`) and `GOOGLE_SHEET_GID` (the number after `gid=` in the URL -- each tab has its own).
 
-No redeploy is needed to turn this on or off afterward -- it's controlled entirely by those two environment variables and the S3 key existing.
+No redeploy is needed to change the key, sheet, or tab afterward -- it's controlled entirely by those two environment variables and the S3 key. Without them configured, `/contact-party` and `/guest-info` respond "temporarily unavailable" rather than falling back to anything else.
 
-## Invitation access
+### Editing the list
 
-The entry page shows only first initial and last name. `POST /contact-party` matches an approved guest in the private `guests.sqlite3`, ignoring case, extra whitespace, and an optional period after the initial. Surnames match exactly after normalization. Unknown, revoked, or ambiguous initial/surname matches do not reveal any party or open the contact form.
-
-The matched guest's own row determines the invitation: their name and their `plus_one` flag. Unapproved rows never match. There is no free-form add-guest field; a plus-one's name (when given) is only ever collected on the form, not looked up in the guest list.
-
-`POST /guest-info` requires `lookup: {first_initial, last_name}` plus the submitted `first_name`/`last_name`, in addition to the contact fields. The server reloads the current guest database, rechecks the name match, and rejects any plus-one fields unless that guest's `plus_one` flag is set. Bypassing the browser lookup or renaming the guest does not grant another invitation or unlock a plus-one. Each invitation gets one Excel row and one submission reference. Approval is based on a name match as requested; this is not email verification or a login session.
-
-To control the list, edit `%LOCALAPPDATA%/WeddingSiteData/guest-list.csv` with columns `guest_id,household_id,first_name,last_name,email,access_approved,plus_one`. Use permanent guest IDs, shared household IDs only if you also use the archived RSVP tooling (see [guest-list.md](guest-list.md)), and `yes`/`no` for both `access_approved` and `plus_one`. Then run:
-
-```powershell
-python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"
-```
-
-The importer publishes the complete list, not incremental additions. Do not put real guest lists in GitHub. Updating the contact tracker does not approve guests; invitation permissions come from this separate private list. The example invitation is already configured in the private database; guest names and IDs are not embedded in the public frontend.
-
-### Editing the list together
-
-Since only one person's machine runs the publish command, keep the actual editing in a shared spreadsheet (a Google Sheet or an Excel Online file, shared privately between the two of you -- not the OneDrive folder this repo lives in). An existing sheet can be reused as-is: `read_guests` only requires the columns above to be *present* by name (`guest_id`, `household_id`, `first_name`, `last_name`, `email`, `access_approved`, `plus_one`); extra columns (phone, address, city...) and any column order are fine and are ignored on import. Add whichever of the required columns are missing directly to that sheet.
-
-One gap is common when adapting an older mailing list: the contact form shows guests their own name pulled from `first_name`, so it needs their actual first name, not just an initial (a "First Initial" column used for an older paper mailing process isn't enough on its own -- add a real `first_name` column alongside it). `access_approved` and `guest_id`/`household_id` are also usually missing from a pre-existing list and need adding (see the column table above for what each holds).
-
-When it's ready to go live, whoever has the AWS CLI set up downloads that sheet as CSV (File > Download > Comma Separated Values), saves it over `%LOCALAPPDATA%/WeddingSiteData/guest-list.csv`, and runs the publish command above. The shared sheet is the working copy; the CSV on disk is only a temporary export used to publish.
+Either of you can edit the sheet directly, from any device -- share it with each other's Google account (Share button, Editor access) and there's nothing else to set up for that. There's no CSV, no publish command, and no "whoever has the laptop" step for this flow: an edit is live on the very next lookup.
 
 ## Reliable saves
 
@@ -51,26 +48,35 @@ A hidden `_WebsiteSubmissions` sheet stores references, payload hashes, and gues
 
 S3 `If-Match` checks the workbook ETag on each write. A simultaneous submission causes a reload and retry instead of overwriting the other guest. After four conflicts the API asks the guest to retry. See [AWS conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).
 
-The Lambda role needs `s3:GetObject` for `guests.sqlite3`, plus `s3:GetObject` and `s3:PutObject` for `welcome/Guest Tracker.xlsx` and `guest-info/*`. The workbook remains private; it is not fetched by the browser. The existing GitHub Pages origin, API Gateway route, and rate limits remain in use. A private original workbook backup was saved under the bucket's `backups/` prefix before deployment.
+The Lambda role needs `s3:GetObject` for the Google service account key, plus `s3:GetObject` and `s3:PutObject` for `welcome/Guest Tracker.xlsx` and `guest-info/*`. The workbook remains private; it is not fetched by the browser. The existing GitHub Pages origin, API Gateway route, and rate limits remain in use. A private original workbook backup was saved under the bucket's `backups/` prefix before deployment.
 
 When editing the workbook manually, download the latest version and avoid uploading an older copy over incoming guest submissions. Preserve the column headers and hidden reference sheet.
 
 ## Access and exports
 
-Open/download `welcome/Guest Tracker.xlsx` in the S3 console using your AWS account. This is the live guest list; no manual export is needed. `python scripts/export_guest_info.py` remains an optional CSV of JSON receipts, which can include a receipt whose workbook update is still awaiting a guest retry. Test receipts marked by authenticated AWS access are excluded. The CSV is not the authoritative workbook.
+Open/download `welcome/Guest Tracker.xlsx` in the S3 console using your AWS account, or run `python scripts/owner_dashboard.py` for a private local live view with a one-click download. This is the authoritative record of every submission; no manual export is needed. `python scripts/export_guest_info.py` remains an optional CSV of JSON receipts, which can include a receipt whose workbook update is still awaiting a guest retry. Test receipts marked by authenticated AWS access are excluded. The CSV is not the authoritative workbook.
 
 ## Local development
 
-Run `python -m pip install -r requirements-dev.txt`, then `python -m backend.server`. Visit http://127.0.0.1:8080. Local form submissions save JSON only in `%LOCALAPPDATA%/WeddingSiteData/guest-info-local`; they do not change the AWS workbook. Workbook tests use isolated in-memory Excel files.
+Run `python -m pip install -r requirements-dev.txt`, then `python -m backend.server`. Visit http://127.0.0.1:8080. **The local dev server is intentionally unaffected by the Google Sheet above** -- it still checks a local `guests.sqlite3`, published the older way (see below), so it can be tested offline without live Google credentials. Local form submissions save JSON only in `%LOCALAPPDATA%/WeddingSiteData/guest-info-local`; they do not change the AWS workbook, the hosted Lambda, or the Google Sheet. Workbook tests use isolated in-memory Excel files.
 
-The local server requires the imported approved guest database for lookup. Run `python -m unittest discover -s tests -v`. Browser checks: `python -m playwright install chromium`, then `python tests/browser_guest_info.py`; this starts its own isolated server and fictional list.
+To control who the local server treats as invited, edit `%LOCALAPPDATA%/WeddingSiteData/guest-list.csv` with columns `guest_id,household_id,first_name,last_name,email,access_approved,plus_one` (`read_guests` only requires these columns be *present* by name; extra columns and any order are fine), then run:
+
+```powershell
+python scripts/guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv" --import
+```
+
+This is separate from `publish_guest_list.py`, which uploads to S3 for the **archived RSVP feature** (`/lookup`, `/party`, `/rsvp` -- see [guest-list.md](guest-list.md)), not for the hosted contact form.
+
+Run `python -m unittest discover -s tests -v`. Browser checks: `python -m playwright install chromium`, then `python tests/browser_guest_info.py`; this starts its own isolated server and fictional list.
 
 ## Deploy
 
 1. Run the tests.
-2. Run `python scripts/build_lambda.py`. This packages Python source plus openpyxl and its dependency outside the public repo. The Lambda runtime provides boto3.
+2. Run `python scripts/build_lambda.py`. This packages Python source plus its dependencies (openpyxl, and the pure-Python `google-auth`/`rsa`/`pyasn1` stack used for the Sheets API -- deliberately no `cryptography`, since this is built with `pip install --target` on the developer's machine without cross-platform flags, and a compiled extension built there wouldn't run on Lambda's Linux runtime) outside the public repo. The Lambda runtime provides boto3.
 3. Deploy the printed ZIP path with `aws lambda update-function-code --function-name wedding-lookup --zip-file fileb://PATH-TO-ZIP --profile wedding-site --region us-east-2`.
-4. Ensure `POST /contact-party` is routed to the existing Lambda integration on API `jfjd4a92w5`. Test an approved submission and identical retry, verify exactly one workbook row, then remove only the test row with an ETag-conditional update. Retain real rows. Mark the JSON receipt as test data if delete permission is unavailable.
-5. Commit reviewed frontend changes and push to `main` for GitHub Pages.
+4. A fresh Lambda needs `GUEST_DATA_BUCKET`, `GOOGLE_SHEET_ID`, and `GOOGLE_SHEET_GID` set (see Setup above); redeploying code doesn't touch existing environment variables.
+5. Ensure `POST /contact-party` is routed to the existing Lambda integration on API `jfjd4a92w5`. Test an approved submission and identical retry, verify exactly one workbook row, then remove only the test row with an ETag-conditional update. Retain real rows. Mark the JSON receipt as test data if delete permission is unavailable.
+6. Commit reviewed frontend changes and push to `main` for GitHub Pages.
 
 Do not package only backend source: openpyxl must be included. Changing the workbook columns requires updating the form and `backend/guest_tracker.py`; unexpected headers fail safely instead of writing into the wrong columns.
