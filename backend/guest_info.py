@@ -6,12 +6,10 @@ from uuid import UUID
 
 MAX_BODY_BYTES = 16384
 FIELDS = {
-    "first_initial": (8, True), "last_name": (100, True),
-    "email": (254, True), "phone": (40, False),
-    "address_line1": (200, True), "address_line2": (200, False),
-    "city": (100, True), "region": (100, False),
-    "postal_code": (24, False), "country": (100, True),
-    "household_members": (1000, False),
+    "name_line_one": (200, True), "name_line_two": (200, False),
+    "inner_envelope": (200, False), "address_line1": (200, True),
+    "address_line2": (200, False), "city": (100, True),
+    "region": (100, True), "postal_code": (24, True), "phone": (40, False),
 }
 
 class InvalidSubmission(ValueError):
@@ -38,21 +36,10 @@ def validate_submission(payload):
         value = unicodedata.normalize("NFC", value.strip())
         if required and not value:
             raise InvalidSubmission("Please fill in this required field.", field)
-        if any(unicodedata.category(c).startswith("C") and not (field == "household_members" and c in "\r\n\t") for c in value):
+        if any(unicodedata.category(c).startswith("C")  for c in value):
             raise InvalidSubmission("Please remove unsupported characters.", field)
         result[field] = value
-    initial = result["first_initial"].removesuffix(".")
-    if not initial or not initial[0].isalpha() or any(not unicodedata.category(c).startswith("M") for c in initial[1:]):
-        raise InvalidSubmission("Please enter just your first initial, such as E.", "first_initial")
-    result["first_initial"] = initial
-    if not re.fullmatch(r"[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+", result["email"]):
-        raise InvalidSubmission("Please enter a valid email address.", "email")
-    if result["country"].casefold() in {"united states", "united states of america", "us", "usa", "u.s.", "u.s.a."}:
-        if not result["region"]:
-            raise InvalidSubmission("Please enter your state.", "region")
-        if not re.fullmatch(r"[0-9]{5}(-[0-9]{4})?", result["postal_code"]):
-            raise InvalidSubmission("Please enter a five-digit ZIP code or ZIP+4.", "postal_code")
     return result
 
 def make_record(data):
-    return {**data, "schema_version": 1, "submitted_at": datetime.now(timezone.utc).isoformat()}
+    return {**data, "schema_version": 2, "submitted_at": datetime.now(timezone.utc).isoformat()}

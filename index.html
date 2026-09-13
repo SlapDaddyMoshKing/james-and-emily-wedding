@@ -28,40 +28,33 @@
       <div id="form-content">
         <p class="eyebrow">Let's keep in touch</p>
         <h2 id="form-title">Your details, please</h2>
-        <p class="form-intro">One form per household is perfect. Fields marked <span aria-hidden="true">*</span> are required.</p>
+        <p class="form-intro">Please complete a separate form for each guest. Fields marked <span aria-hidden="true">*</span> are required.</p>
         <form id="guest-info" aria-describedby="privacy-note" novalidate>
           <fieldset>
             <legend><span>01</span> A name for our list</legend>
-            <div class="fields name-fields">
-              <label>First initial <span aria-hidden="true">*</span><input name="first_initial" autocomplete="off" maxlength="8" placeholder="E" required aria-describedby="initial-help"><small id="initial-help">Just the first letter.</small></label>
-              <label>Last name <span aria-hidden="true">*</span><input name="last_name" autocomplete="family-name" maxlength="100" required></label>
-            </div>
-            <div class="fields">
-              <label>Email address <span aria-hidden="true">*</span><input name="email" type="email" autocomplete="email" maxlength="254" required></label>
-              <label>Phone number <small>(optional)</small><input name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
-            </div>
+            <label>Name line one <span aria-hidden="true">*</span><input name="name_line_one" autocomplete="name" maxlength="200" required aria-describedby="name-help" placeholder="E. Smith"></label>
+            <p class="field-help" id="name-help">Your name as you'd like it printed on your invitation.</p>
+            <label>Name line two <small>(optional)</small><input name="name_line_two" maxlength="200" aria-describedby="second-name-help"></label>
+            <p class="field-help" id="second-name-help">An extra line for this guest's printed name, if needed. Please submit other guests separately.</p>
+            <label>Inner envelope <small>(optional)</small><input name="inner_envelope" maxlength="200" placeholder="Emily" aria-describedby="envelope-help"></label>
+            <p class="field-help" id="envelope-help">How you'd like to be addressed on the inside envelope, such as your first name.</p>
           </fieldset>
           <fieldset>
             <legend><span>02</span> Somewhere to send a little joy</legend>
-            <label>Street address <span aria-hidden="true">*</span><input name="address_line1" autocomplete="address-line1" maxlength="200" required></label>
-            <label>Apartment, suite, etc. <small>(optional)</small><input name="address_line2" autocomplete="address-line2" maxlength="200"></label>
+            <label>Address line one <span aria-hidden="true">*</span><input name="address_line1" autocomplete="address-line1" maxlength="200" required></label>
+            <label>Address line two <small>(optional)</small><input name="address_line2" autocomplete="address-line2" maxlength="200"></label>
             <div class="fields">
-              <label>City / town <span aria-hidden="true">*</span><input name="city" autocomplete="address-level2" maxlength="100" required></label>
-              <label>State / province / region <small>(if applicable)</small><input name="region" autocomplete="address-level1" maxlength="100"></label>
+              <label>City <span aria-hidden="true">*</span><input name="city" autocomplete="address-level2" maxlength="100" required></label>
+              <label>State / province / region <span aria-hidden="true">*</span><input name="region" autocomplete="address-level1" maxlength="100" required></label>
             </div>
             <div class="fields">
-              <label>ZIP / postal code <small>(if applicable)</small><input name="postal_code" autocomplete="postal-code" maxlength="24"></label>
-              <label>Country <span aria-hidden="true">*</span><input name="country" autocomplete="country-name" value="United States" maxlength="100" required></label>
+              <label>ZIP / postal code <span aria-hidden="true">*</span><input name="postal_code" autocomplete="postal-code" maxlength="24" required></label>
+              <label>Phone number <small>(optional)</small><input name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
             </div>
-          </fieldset>
-          <fieldset>
-            <legend><span>03</span> Anyone else at this address?</legend>
-            <label>Other household members <small>(optional)</small><textarea name="household_members" rows="3" maxlength="1000" aria-describedby="household-help" placeholder="For example: J. Smith, A. Smith"></textarea></label>
-            <p class="field-help" id="household-help">Use a first initial and last name for each person sharing this mailing address.</p>
           </fieldset>
           <div class="honeypot" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>
           <p class="privacy-note" id="privacy-note">By sending this form, you're sharing these details with Emily &amp; James for wedding invitations and updates.</p>
-          <button class="primary-button" type="submit" disabled>Send our details <span aria-hidden="true">↗</span></button>
+          <button class="primary-button" type="submit" disabled>Send my details <span aria-hidden="true">↗</span></button>
           <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
           <noscript><p>Please enable JavaScript to send your details, or share them directly with Emily or James.</p></noscript>
         </form>
@@ -73,8 +66,8 @@
         <p>Thank you! Your contact details have been saved for Emily &amp; James.</p>
         <p>We'll use them for invitations and wedding updates. We'll ask for your RSVP later.</p>
         <p class="receipt" id="receipt"></p>
-        <button class="secondary-button" id="another-household" type="button">Send details for another household</button>
-        <p class="field-help">Need to correct something? Send the form again with your updated details.</p>
+        <button class="secondary-button" id="another-guest" type="button">Send details for another guest</button>
+        <p class="field-help">Need to correct something? Contact Emily or James with your reference so we can update your details.</p>
       </div>
     </section>
   </main>

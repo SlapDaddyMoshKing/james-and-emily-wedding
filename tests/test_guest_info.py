@@ -17,9 +17,8 @@ from scripts.export_guest_info import export_contacts
 
 
 def sample():
-    return {"submission_id": str(uuid4()), "first_initial": "E.", "last_name": "Example",
-        "email": "test@example.com", "address_line1": "123 Example Lane", "city": "Chicago",
-        "region": "IL", "postal_code": "60601", "country": "United States"}
+    return {"submission_id": str(uuid4()), "name_line_one": "E. Example", "address_line1": "123 Example Lane", "city": "Chicago",
+        "region": "IL", "postal_code": "60601"}
 
 
 class MemoryS3:
@@ -62,6 +61,9 @@ class ContactTests(unittest.TestCase):
         self.s3_patch.start()
         self.addCleanup(self.s3_patch.stop)
         self.sync = patch.object(self.hosted, "_sync_database", side_effect=AssertionError("Intake must not read guest list"))
+        self.tracker = patch.object(self.hosted, "save_to_tracker")
+        self.tracker_mock = self.tracker.start()
+        self.addCleanup(self.tracker.stop)
         self.sync.start()
         self.addCleanup(self.sync.stop)
 
@@ -78,12 +80,12 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(result, {"saved": True, "submission_id": data["submission_id"]})
         key = f"guest-info/{data['submission_id']}.json"
         stored = json.loads(self.s3.records[key])
-        self.assertEqual(stored["first_initial"], "E")
+        self.assertEqual(stored["name_line_one"], "E. Example")
         self.assertIn("submitted_at", stored)
         self.assertEqual(self.request(data)[0], 200)
         self.assertEqual(self.s3.writes, 1)
-        self.assertEqual(self.request({**data, "last_name": "Changed"})[0], 409)
-        self.assertEqual(json.loads(self.s3.records[key])["last_name"], "Example")
+        self.assertEqual(self.request({**data, "name_line_one": "Changed"})[0], 409)
+        self.assertEqual(json.loads(self.s3.records[key])["name_line_one"], "E. Example")
 
     def test_failed_storage_does_not_report_success(self):
         self.s3.fail = True
@@ -92,19 +94,28 @@ class ContactTests(unittest.TestCase):
         self.assertNotIn("saved", response)
         self.assertFalse(self.s3.records)
 
+    def test_workbook_failure_can_retry_after_json_was_saved(self):
+        data = sample()
+        self.tracker_mock.side_effect = ValueError("Tracker busy")
+        self.assertEqual(self.request(data)[0], 503)
+        self.assertEqual(self.s3.writes, 1)
+        self.tracker_mock.side_effect = None
+        self.assertEqual(self.request(data)[0], 200)
+        self.assertEqual(self.s3.writes, 1)
+        self.assertEqual(self.tracker_mock.call_count, 2)
+
     def test_validation_rejects_bad_fields_without_writes(self):
-        for changes in [{"first_initial": "Emily"}, {"last_name": " "}, {"email": "invalid"},
-            {"postal_code": "abc"}, {"region": ""}, {"country": ""}, {"phone": []},
-            {"submission_id": "../example"}, {"website": "spam"}, {"household_members": "x" * 1001},
-            {"last_name": "bad\x00name"}, {"unknown": "extra"}]:
+        for changes in [{"name_line_one": " "}, {"postal_code": ""}, {"region": ""},
+            {"phone": []}, {"submission_id": "../example"}, {"website": "spam"},
+            {"inner_envelope": "x" * 201}, {"name_line_one": "bad\x00name"}, {"unknown": "extra"}]:
             with self.subTest(changes=changes):
                 self.assertEqual(self.request({**sample(), **changes})[0], 400)
         self.assertFalse(self.s3.records)
 
-    def test_international_address_and_unicode_initial(self):
-        data = {**sample(), "first_initial": "É", "country": "Ireland", "postal_code": "", "region": ""}
+    def test_unicode_name_and_international_postal_code(self):
+        data = {**sample(), "name_line_one": "E\u0301. Example", "postal_code": "SW1A 1AA"}
         self.assertEqual(self.request(data)[0], 200)
-        self.assertEqual(validate_submission({**data, "first_initial": "E\u0301"})["first_initial"], "É")
+        self.assertEqual(validate_submission(data)["name_line_one"], "\u00c9. Example")
 
     def test_protocol_size_base64_and_rate_limit(self):
         self.assertEqual(self.request(sample(), headers={})[0], 415)
@@ -120,14 +131,14 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(self.hosted.handler(event, None)["statusCode"], 405)
 
     def test_export_all_pages_preserves_postal_codes_and_neutralizes_formulas(self):
-        self.request({**sample(), "last_name": "=1+1", "phone": "+15555550100", "postal_code": "01234"})
+        self.request({**sample(), "name_line_one": "=1+1", "phone": "+15555550100", "postal_code": "01234"})
         self.request(sample())
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "contacts.csv"
             self.assertEqual(export_contacts(self.s3, output), 2)
             with output.open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(rows[0]["last_name"], "'=1+1")
+            self.assertEqual(rows[0]["name_line_one"], "'=1+1")
             self.assertEqual(rows[0]["postal_code"], "01234")
             self.assertEqual(rows[0]["phone"], "'+15555550100")
 

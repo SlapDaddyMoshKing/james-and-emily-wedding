@@ -4,15 +4,19 @@ The site currently collects guest contact information before invitations go out.
 
 **Website:** https://slapdaddymoshking.github.io/james-and-emily-wedding/
 
-The form collects first initial, last name, email, and mailing address, plus optional phone and other household members. US addresses require a state and ZIP; international addresses can omit a region or postal code where not applicable. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
+The form matches the nine columns in your Guest Tracker workbook: Name Line One, Name Line Two, Inner Envelope, Address Line One, Address Line Two, City, State, Zip Code, and Phone Number. Submit a separate form per guest. Name line two, inner envelope, address line two, and phone are optional. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
 
 ## Where submissions go
 
-GitHub Pages serves the static site from the root of `main`. `site-config.json` connects the form to the existing AWS API Gateway and Lambda in `us-east-2`. Lambda validates submissions and saves encrypted JSON objects under `guest-info/<random-reference>.json` in the private S3 bucket `wedding-site-guest-data-8f3d21`.
+GitHub Pages serves the static site from the root of `main`. `site-config.json` connects the form to the existing AWS API Gateway and Lambda in `us-east-2`. Lambda validates submissions and appends one guest row to `welcome/Guest Tracker.xlsx` in the private S3 bucket `wedding-site-guest-data-8f3d21`. It also keeps encrypted JSON submission receipts under `guest-info/`. Success appears only after the Excel write succeeds.
 
 Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection does not read or modify the existing guest database or RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints are retained for later work.
 
-## Download the collected information
+## Open the collected information
+
+Open `welcome/Guest Tracker.xlsx` from the existing S3 bucket using your AWS account. The `GUEST ADDRESSING` sheet updates automatically as guests submit. You do not need to run a CSV export to update Excel.
+
+### Optional CSV export
 
 Install the Python tools once:
 

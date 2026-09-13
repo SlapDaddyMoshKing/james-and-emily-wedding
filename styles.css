@@ -44,6 +44,7 @@ input:focus, textarea:focus { outline: 2px solid #476b84; outline-offset: 2px; }
 #initial-help { display: block; margin-top: 5px; }
 .field-help, .privacy-note { color: var(--muted); font: 12px/1.7 Arial, sans-serif; }
 .field-help { margin: -5px 0 0; }
+.field-help + label { margin-top: 18px; }
 .privacy-note { margin: 0 0 18px; }
 button { touch-action: manipulation; }
 .primary-button { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 1px solid #314d61; border-radius: 4px; background: var(--ink); color: #fffdf8; min-height: 52px; padding: 14px 20px; font: 15px Arial, sans-serif; cursor: pointer; }

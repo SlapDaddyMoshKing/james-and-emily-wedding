@@ -1,7 +1,8 @@
 """AWS Lambda entry point: contact collection and legacy invitation/RSVP APIs.
 
 POST /guest-info collects contact details without consulting the guest database.
-It writes encrypted, immutable guest-info/<uuid>.json objects in the same bucket.
+It appends one row to welcome/Guest Tracker.xlsx and retains an encrypted JSON
+receipt. Success is returned only once the workbook write is confirmed.
 See docs/guest-information.md for the current guest-facing flow.
 
 Three endpoints, dispatched by path:
@@ -45,6 +46,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
+from backend.guest_tracker import save_to_tracker
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
@@ -185,6 +187,7 @@ def _guest_info(payload):
             previous = json.loads(_s3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
             if any(previous.get(field) != value for field, value in data.items()):
                 return _respond(409, {"error": "Please submit again with a new reference."})
+        save_to_tracker(_s3, BUCKET, data)
     except (ClientError, BotoCoreError, OSError, ValueError):
         return _respond(503, {"error": "We couldn't save your details. Please try again shortly."})
     return _respond(200, {"saved": True, "submission_id": data["submission_id"]})

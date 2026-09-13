@@ -36,12 +36,6 @@ form.addEventListener("submit", async (event) => {
     field.setCustomValidity("");
     field.removeAttribute("aria-invalid");
   }
-  const initial = form.elements.first_initial;
-  initial.value = initial.value.normalize("NFC").replace(/\.$/, "");
-  if (!/^\p{L}\p{M}*$/u.test(initial.value)) initial.setCustomValidity("Please enter just your first initial, such as E.");
-  const us = ["united states", "united states of america", "us", "usa", "u.s.", "u.s.a."].includes(form.elements.country.value.toLowerCase());
-  if (us && !form.elements.region.value) form.elements.region.setCustomValidity("Please enter your state.");
-  if (us && !/^\d{5}(-\d{4})?$/.test(form.elements.postal_code.value)) form.elements.postal_code.setCustomValidity("Please enter a five-digit ZIP code or ZIP+4.");
   if (!form.reportValidity()) {
     for (const field of form.querySelectorAll(":invalid")) field.setAttribute("aria-invalid", "true");
     status("Please check the highlighted fields.", true);
@@ -62,7 +56,7 @@ form.addEventListener("submit", async (event) => {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "omit", cache: "no-store",
       body: JSON.stringify({ ...data, submission_id: submissionId }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(25000),
     });
     if (response.status === 429) throw new Error("Please wait ten minutes before trying again. Your entries are still here.");
     if (response.status === 409) {
@@ -99,10 +93,10 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-document.querySelector("#another-household").addEventListener("click", () => {
+document.querySelector("#another-guest").addEventListener("click", () => {
   lastBody = null;
   confirmation.hidden = true;
   document.querySelector("#form-content").hidden = false;
-  form.elements.first_initial.focus();
+  form.elements.name_line_one.focus();
 });
 configure().catch(() => {}).finally(() => { button.disabled = false; });
