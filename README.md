@@ -1,16 +1,16 @@
 # Emily & James's Wedding Website
 
-The site currently collects guest contact information before invitations go out. Guests open the link directly; no preloaded guest list, invitation check, account, or RSVP is required.
+The site currently collects guest contact information before invitations go out. Guests first enter their first initial and last name. The private approved guest list determines who is included on their invitation before contact fields appear. No account or RSVP is required.
 
 **Website:** https://slapdaddymoshking.github.io/james-and-emily-wedding/
 
-The form matches the nine columns in your Guest Tracker workbook: Name Line One, Name Line Two, Inner Envelope, Address Line One, Address Line Two, City, State, Zip Code, and Phone Number. Submit a separate form per guest. Name line two, inner envelope, address line two, and phone are optional. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
+The form matches the nine columns in your Guest Tracker workbook: Name Line One, Name Line Two, Inner Envelope, Address Line One, Address Line Two, City, State, Zip Code, and Phone Number. After matching, guests complete a separate form for each approved person on their invitation. Guest names come from the approved list and cannot be changed in the form. Name line two, inner envelope, address line two, and phone are optional. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
 
 ## Where submissions go
 
 GitHub Pages serves the static site from the root of `main`. `site-config.json` connects the form to the existing AWS API Gateway and Lambda in `us-east-2`. Lambda validates submissions and appends one guest row to `welcome/Guest Tracker.xlsx` in the private S3 bucket `wedding-site-guest-data-8f3d21`. It also keeps encrypted JSON submission receipts under `guest-info/`. Success appears only after the Excel write succeeds.
 
-Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection does not read or modify the existing guest database or RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints are retained for later work.
+Guest details are never committed to GitHub or made available through a public read endpoint. Contact collection reads the private guest database to enforce the invitation and plus-one list. It does not modify that database or RSVP records. The old `welcome.html` link now redirects to the contact form. The previous RSVP templates and backend endpoints are retained for later work.
 
 ## Open the collected information
 
@@ -32,6 +32,10 @@ python scripts/export_guest_info.py
 
 This saves all submissions to `%LOCALAPPDATA%\WeddingSiteData\guest-contact-details.csv`, outside this public repository. See [contact collection guide](docs/guest-information.md) for corrections, privacy, deployment, and export details.
 
+## Control invitations and plus-ones
+
+Keep one approved row per guest in the private guest-list CSV. Guests on the same invitation share a `household_id`; a solo guest has their own. Publish changes with `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`. See [invitation setup](docs/guest-information.md#invitation-access) for details. Contact spreadsheet submissions do not grant invitations.
+
 ## Preview and test
 
 ```powershell
@@ -46,7 +50,7 @@ python -m playwright install chromium
 python tests/browser_guest_info.py
 ```
 
-The browser checks require the local server above. They use fictional data, remove their own test submission, and save review screenshots outside the repository.
+The browser checks start their own isolated server with fictional guests and clean up temporary data. Review screenshots stay outside the repository.
 
 ## Publish
 

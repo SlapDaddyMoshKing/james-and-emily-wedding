@@ -14,10 +14,12 @@ from botocore.exceptions import ClientError
 from backend.guest_info import InvalidSubmission, validate_submission
 from backend.server import RateLimit, create_app
 from scripts.export_guest_info import export_contacts
+from scripts.guest_list import import_guests
 
 
 def sample():
-    return {"submission_id": str(uuid4()), "name_line_one": "E. Example", "address_line1": "123 Example Lane", "city": "Chicago",
+    return {"submission_id": str(uuid4()), "name_line_one": "Emma Example",
+        "lookup": {"first_initial": "E", "last_name": "Example"}, "guest_id": "G1", "address_line1": "123 Example Lane", "city": "Chicago",
         "region": "IL", "postal_code": "60601"}
 
 
@@ -60,7 +62,15 @@ class ContactTests(unittest.TestCase):
         self.s3_patch = patch.object(self.hosted, "_s3", self.s3)
         self.s3_patch.start()
         self.addCleanup(self.s3_patch.stop)
-        self.sync = patch.object(self.hosted, "_sync_database", side_effect=AssertionError("Intake must not read guest list"))
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        database = Path(self.folder.name) / "guests.sqlite3"
+        import_guests([("G1", "H1", "Emma", "Example", None, 1)], database)
+        self.database = database
+        self.db_patch = patch.object(self.hosted, "DATABASE_PATH", database)
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
+        self.sync = patch.object(self.hosted, "_sync_database")
         self.tracker = patch.object(self.hosted, "save_to_tracker")
         self.tracker_mock = self.tracker.start()
         self.addCleanup(self.tracker.stop)
@@ -80,12 +90,12 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(result, {"saved": True, "submission_id": data["submission_id"]})
         key = f"guest-info/{data['submission_id']}.json"
         stored = json.loads(self.s3.records[key])
-        self.assertEqual(stored["name_line_one"], "E. Example")
+        self.assertEqual(stored["name_line_one"], "Emma Example")
         self.assertIn("submitted_at", stored)
         self.assertEqual(self.request(data)[0], 200)
         self.assertEqual(self.s3.writes, 1)
-        self.assertEqual(self.request({**data, "name_line_one": "Changed"})[0], 409)
-        self.assertEqual(json.loads(self.s3.records[key])["name_line_one"], "E. Example")
+        self.assertEqual(self.request({**data, "city": "Changed"})[0], 409)
+        self.assertEqual(json.loads(self.s3.records[key])["name_line_one"], "Emma Example")
 
     def test_failed_storage_does_not_report_success(self):
         self.s3.fail = True
@@ -105,17 +115,26 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(self.tracker_mock.call_count, 2)
 
     def test_validation_rejects_bad_fields_without_writes(self):
-        for changes in [{"name_line_one": " "}, {"postal_code": ""}, {"region": ""},
+        for changes in [{"postal_code": ""}, {"region": ""},
             {"phone": []}, {"submission_id": "../example"}, {"website": "spam"},
-            {"inner_envelope": "x" * 201}, {"name_line_one": "bad\x00name"}, {"unknown": "extra"}]:
+            {"inner_envelope": "x" * 201}, {"unknown": "extra"}]:
             with self.subTest(changes=changes):
                 self.assertEqual(self.request({**sample(), **changes})[0], 400)
         self.assertFalse(self.s3.records)
 
-    def test_unicode_name_and_international_postal_code(self):
-        data = {**sample(), "name_line_one": "E\u0301. Example", "postal_code": "SW1A 1AA"}
+    def test_international_postal_code(self):
+        data = {**sample(), "postal_code": "SW1A 1AA"}
         self.assertEqual(self.request(data)[0], 200)
-        self.assertEqual(validate_submission(data)["name_line_one"], "\u00c9. Example")
+
+    def test_submission_cannot_bypass_lookup_or_add_a_guest(self):
+        for payload in [ {key: value for key, value in sample().items() if key != "lookup"},
+            {**sample(), "guest_id": "someone-else"}, {**sample(), "name_line_one": "Unapproved Guest"},
+            {**sample(), "lookup": {"first_initial": "U", "last_name": "Unknown"}} ]:
+            self.assertEqual(self.request(payload)[0], 403)
+        self.assertEqual(self.s3.writes, 0)
+        self.tracker_mock.assert_not_called()
+        import_guests([("G1", "H1", "Emma", "Example", None, 0)], self.database)
+        self.assertEqual(self.request(sample())[0], 403)
 
     def test_protocol_size_base64_and_rate_limit(self):
         self.assertEqual(self.request(sample(), headers={})[0], 415)
@@ -131,14 +150,14 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(self.hosted.handler(event, None)["statusCode"], 405)
 
     def test_export_all_pages_preserves_postal_codes_and_neutralizes_formulas(self):
-        self.request({**sample(), "name_line_one": "=1+1", "phone": "+15555550100", "postal_code": "01234"})
+        self.request({**sample(), "name_line_two": "=1+1", "phone": "+15555550100", "postal_code": "01234"})
         self.request(sample())
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "contacts.csv"
             self.assertEqual(export_contacts(self.s3, output), 2)
             with output.open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(rows[0]["name_line_one"], "'=1+1")
+            self.assertEqual(rows[0]["name_line_two"], "'=1+1")
             self.assertEqual(rows[0]["postal_code"], "01234")
             self.assertEqual(rows[0]["phone"], "'+15555550100")
 
@@ -149,10 +168,10 @@ class ContactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(export_contacts(self.s3, Path(directory) / "contacts.csv"), 0)
 
-    def test_local_form_without_database_and_no_public_records(self):
+    def test_local_form_checks_invitation_and_no_public_records(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            app = create_app(folder / "missing.sqlite3", submissions_dir=folder / "contacts")
+            app = create_app(self.database, submissions_dir=folder / "contacts")
             data = sample()
             def request(path, method="POST", payload=data):
                 body = json.dumps(payload).encode()

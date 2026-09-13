@@ -1,6 +1,7 @@
 """AWS Lambda entry point: contact collection and legacy invitation/RSVP APIs.
 
-POST /guest-info collects contact details without consulting the guest database.
+POST /contact-party matches first initial and surname to an approved invitation.
+POST /guest-info rechecks that invitation and the selected guest before saving.
 It appends one row to welcome/Guest Tracker.xlsx and retains an encrypted JSON
 receipt. Success is returned only once the workbook write is confirmed.
 See docs/guest-information.md for the current guest-facing flow.
@@ -15,7 +16,7 @@ Three endpoints, dispatched by path:
   Re-validates the name and that every guest_id belongs to that same
   household before writing anything.
 
-None of this grants a session or a cookie -- every call re-proves the name
+None of this grants a session or a cookie -- every call rechecks the name
 against the current guest list. That's consistent with the rest of this
 project's deliberately name-only, low-ceremony trust model (see
 docs/guest-list.md); the real gate is that these URLs aren't public.
@@ -47,6 +48,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 from backend.guest_tracker import save_to_tracker
+from backend.contact_access import AccessDenied, authorize_submission, lookup_party
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
@@ -168,11 +170,17 @@ def _rsvp(payload):
 
 
 def _guest_info(payload):
-    """Collect details without requiring an existing invitation or reading the list."""
+    """Recheck the current invitation before accepting any contact information."""
     try:
-        data = validate_submission(payload)
+        data = validate_submission(authorize_submission(DATABASE_PATH, payload))
+    except AccessDenied as error:
+        return _respond(403, {"error": str(error)})
     except InvalidSubmission as error:
         return _respond(400, {"error": str(error), "field": error.field})
+    except ValueError as error:
+        return _respond(400, {"error": str(error)})
+    except sqlite3.Error:
+        return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     key = f"guest-info/{data['submission_id']}.json"
     try:
         try:
@@ -193,7 +201,18 @@ def _guest_info(payload):
     return _respond(200, {"saved": True, "submission_id": data["submission_id"]})
 
 
-_ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp, "/guest-info": _guest_info}
+def _contact_party(payload):
+    try:
+        return _respond(200, lookup_party(DATABASE_PATH, payload))
+    except AccessDenied as error:
+        return _respond(403, {"error": str(error)})
+    except ValueError as error:
+        return _respond(400, {"error": str(error)})
+    except sqlite3.Error:
+        return _respond(503, {"error": "The invitation list is temporarily unavailable."})
+
+
+_ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp, "/guest-info": _guest_info, "/contact-party": _contact_party}
 
 
 def handler(event, context):
@@ -209,7 +228,7 @@ def handler(event, context):
         return _respond(429, {"error": "Please try again later."}, {"Retry-After": "600"})
 
     headers = {key.lower(): value for key, value in event.get("headers", {}).items()}
-    if route is _guest_info and headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+    if route in (_guest_info, _contact_party) and headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
         return _respond(415, {"error": "Use JSON."})
     try:
         body = event.get("body") or "{}"
@@ -222,8 +241,6 @@ def handler(event, context):
     except (ValueError, UnicodeError, TypeError):
         return _respond(400, {"error": "Enter a valid request."})
 
-    if route is _guest_info:
-        return route(payload)
     try:
         _sync_database()
     except (OSError, ClientError, BotoCoreError):

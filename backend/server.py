@@ -15,6 +15,7 @@ from wsgiref.simple_server import make_server
 
 from scripts.guest_list import DATA_DIR, REPO_ROOT, private_path
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
+from backend.contact_access import AccessDenied, authorize_submission, lookup_party
 
 PUBLIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -85,6 +86,24 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
 
         path = environ.get("PATH_INFO", "/")
         method = environ.get("REQUEST_METHOD", "GET")
+        if path == "/api/contact-party":
+            if method != "POST":
+                return respond("405 Method Not Allowed", {"error": "Use POST."})
+            if not limiter.allow(environ.get("REMOTE_ADDR", "unknown")):
+                return respond("429 Too Many Requests", {"error": "Please try again later."})
+            if environ.get("CONTENT_TYPE", "").split(";")[0].strip().lower() != "application/json":
+                return respond("415 Unsupported Media Type", {"error": "Use JSON."})
+            try:
+                length = int(environ.get("CONTENT_LENGTH", "0") or "0")
+                if not 1 <= length <= MAX_BODY_BYTES:
+                    return respond("413 Content Too Large", {"error": "Invalid request size."})
+                return respond("200 OK", lookup_party(database, json.loads(environ["wsgi.input"].read(length))))
+            except AccessDenied as error:
+                return respond("403 Forbidden", {"error": str(error)})
+            except (ValueError, UnicodeError):
+                return respond("400 Bad Request", {"error": "Enter a valid first initial and last name."})
+            except (OSError, sqlite3.Error):
+                return respond("503 Service Unavailable", {"error": "The invitation list is temporarily unavailable."})
         if path == "/api/guest-info":
             if method != "POST":
                 return respond("405 Method Not Allowed", {"error": "Use POST."}, extra=[("Allow", "POST")])
@@ -96,7 +115,7 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
                 length = int(environ.get("CONTENT_LENGTH", "0") or "0")
                 if not 1 <= length <= MAX_BODY_BYTES:
                     return respond("413 Content Too Large", {"error": "Invalid request size."})
-                data = validate_submission(json.loads(environ["wsgi.input"].read(length)))
+                data = validate_submission(authorize_submission(database, json.loads(environ["wsgi.input"].read(length))))
                 with submission_lock:
                     submissions_dir.mkdir(parents=True, exist_ok=True)
                     target = submissions_dir / (data["submission_id"] + ".json")
@@ -108,11 +127,13 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
                         temporary = target.with_suffix(".tmp")
                         temporary.write_text(json.dumps(make_record(data), ensure_ascii=False), encoding="utf-8")
                         temporary.replace(target)
+            except AccessDenied as error:
+                return respond("403 Forbidden", {"error": str(error)})
             except InvalidSubmission as error:
                 return respond("400 Bad Request", {"error": str(error), "field": error.field})
             except (ValueError, UnicodeError):
                 return respond("400 Bad Request", {"error": "Enter a valid request."})
-            except OSError:
+            except (OSError, sqlite3.Error):
                 return respond("503 Service Unavailable", {"error": "We couldn't save your details. Please try again shortly."})
             return respond("200 OK", {"saved": True, "submission_id": data["submission_id"]})
         if path == "/api/invitations/lookup":
@@ -139,7 +160,7 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
         if method != "GET":
             return respond("405 Method Not Allowed", {"error": "Use GET."}, extra=[("Allow", "GET")])
         if path == "/site-config.json":
-            return respond("200 OK", {"guestInfoUrl": "/api/guest-info", "invitationLookupUrl": "/api/invitations/lookup"})
+            return respond("200 OK", {"contactPartyUrl": "/api/contact-party", "guestInfoUrl": "/api/guest-info", "invitationLookupUrl": "/api/invitations/lookup"})
         if path in PUBLIC_FILES:
             filename, content_type = PUBLIC_FILES[path]
             return respond("200 OK", (REPO_ROOT / filename).read_bytes(), content_type)
