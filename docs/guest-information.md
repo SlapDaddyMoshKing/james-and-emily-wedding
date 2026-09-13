@@ -20,6 +20,14 @@ python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-li
 
 The importer publishes the complete list, not incremental additions. Do not put real guest lists in GitHub. Updating the contact tracker does not approve guests; invitation permissions come from this separate private list. The example invitation is already configured in the private database; guest names and IDs are not embedded in the public frontend.
 
+### Editing the list together
+
+Since only one person's machine runs the publish command, keep the actual editing in a shared spreadsheet (a Google Sheet or an Excel Online file, shared privately between the two of you -- not the OneDrive folder this repo lives in). An existing sheet can be reused as-is: `read_guests` only requires the columns above to be *present* by name (`guest_id`, `household_id`, `first_name`, `last_name`, `email`, `access_approved`, `plus_one`); extra columns (phone, address, city...) and any column order are fine and are ignored on import. Add whichever of the required columns are missing directly to that sheet.
+
+One gap is common when adapting an older mailing list: the contact form shows guests their own name pulled from `first_name`, so it needs their actual first name, not just an initial (a "First Initial" column used for an older paper mailing process isn't enough on its own -- add a real `first_name` column alongside it). `access_approved` and `guest_id`/`household_id` are also usually missing from a pre-existing list and need adding (see the column table above for what each holds).
+
+When it's ready to go live, whoever has the AWS CLI set up downloads that sheet as CSV (File > Download > Comma Separated Values), saves it over `%LOCALAPPDATA%/WeddingSiteData/guest-list.csv`, and runs the publish command above. The shared sheet is the working copy; the CSV on disk is only a temporary export used to publish.
+
 ## Reliable saves
 
 After rechecking invitation access, `POST /guest-info` retains an encrypted JSON receipt, then updates the workbook. It returns success only after the workbook is saved. If the workbook write fails, submitting the unchanged form retries it using the same reference.

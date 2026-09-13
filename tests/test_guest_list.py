@@ -36,6 +36,20 @@ class GuestListTests(unittest.TestCase):
         self.assertEqual(guests[1][5], 0)
         self.assertEqual(guests[1][6], 0)
 
+    def test_extra_and_reordered_columns_are_tolerated(self):
+        with self.csv.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.writer(output)
+            writer.writerow(["last_name", "phone", *COLUMNS[:-1], "plus_one", "city"])
+            writer.writerow(["Example", "918-555-0100", "G001", "H001", "Renée", "Example", "guest@example.com", "yes", "yes", "Springdale"])
+        guests = read_guests(self.csv)
+        self.assertEqual(guests, [("G001", "H001", "Renée", "Example", "guest@example.com", 1, 1)])
+        with self.csv.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.writer(output)
+            writer.writerow([column for column in COLUMNS if column != "plus_one"])
+            writer.writerow(["G001", "H001", "Example", "Guest", "guest@example.com", "yes"])
+        with self.assertRaisesRegex(ValueError, "plus_one"):
+            read_guests(self.csv)
+
     def test_bad_lists_rejected(self):
         good = ["G001", "H001", "Example", "Guest", "guest@example.com", "yes", "no"]
         cases = [[], [good, good], [good, ["G002", "H002", "Other", "Guest", "guest@example.com", "yes", "no"]]]

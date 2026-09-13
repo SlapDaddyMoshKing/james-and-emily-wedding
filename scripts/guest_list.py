@@ -32,8 +32,9 @@ def read_guests(path):
     email_households = {}
     with Path(path).open(newline="", encoding="utf-8-sig") as source:
         reader = csv.DictReader(source)
-        if reader.fieldnames != list(COLUMNS):
-            raise ValueError("CSV headers must be exactly: " + ",".join(COLUMNS))
+        missing = [column for column in COLUMNS if column not in (reader.fieldnames or [])]
+        if missing:
+            raise ValueError("CSV is missing required column(s): " + ", ".join(missing))
         for line, row in enumerate(reader, start=2):
             if None in row or any(value is None for value in row.values()):
                 raise ValueError(f"Row {line}: wrong number of columns.")
