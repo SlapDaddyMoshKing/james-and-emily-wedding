@@ -37,9 +37,17 @@ invocation (it's tiny), so a guest-list re-import -- which can revoke
 access -- takes effect immediately, matching backend/server.py's
 documented local behavior.
 
+Invoking this function directly with {"task": "send-invitation-texts"}
+(meant for a scheduled EventBridge trigger, not a guest request) runs
+backend/guest_texts.py's SMS outreach instead of any HTTP route: it texts
+a link to guests whose sheet row has "Send Text?" set to Yes and who
+haven't visited the site yet, skipping anyone already texted in the last
+21 days. See docs/guest-information.md.
+
 Configure via environment variables on the Lambda function:
-  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3, rsvps/*, and the
-                       Google service account key
+  GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3, rsvps/*, the
+                       Google service account key, and the Twilio
+                       credentials file
   GOOGLE_SHEET_ID      The shared sheet's ID, from its URL
   GOOGLE_SHEET_GID     The specific tab's gid, from its URL
 """
@@ -60,6 +68,7 @@ from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 from backend.guest_tracker import save_to_tracker
 from backend.guest_sheet import SheetSyncError, authorize_submission_from_sheet, lookup_guest_from_sheet, sync_submission
+from backend.guest_texts import mark_visited, send_invitation_texts
 from backend.contact_access import AccessDenied
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
@@ -68,6 +77,7 @@ MAX_PARTY_SIZE = 20
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 GOOGLE_SHEET_GID = os.environ.get("GOOGLE_SHEET_GID")
 GOOGLE_SERVICE_ACCOUNT_KEY = "google-service-account.json"
+TWILIO_CREDENTIALS_KEY = "twilio-credentials.json"
 
 _s3 = boto3.client("s3")
 # Per-warm-container only (not shared across concurrent Lambdas); a coarse
@@ -212,6 +222,7 @@ def _guest_info(payload):
         return _respond(400, {"error": str(error)})
     except (SheetSyncError, URLError, OSError):
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
+    _mark_visited_best_effort(payload.get("lookup") if isinstance(payload, dict) else None)
     key = f"guest-info/{data['submission_id']}.json"
     record = make_record(data)
     try:
@@ -250,19 +261,61 @@ def _contact_party(payload):
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     try:
         service_account_key = _fetch_service_account_key()
-        return _respond(200, lookup_guest_from_sheet(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, payload))
+        guest = lookup_guest_from_sheet(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, payload)
     except AccessDenied as error:
         return _respond(403, {"error": str(error)})
     except ValueError as error:
         return _respond(400, {"error": str(error)})
     except (ClientError, BotoCoreError, SheetSyncError, URLError, OSError):
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
+    _mark_visited_best_effort(payload)
+    return _respond(200, guest)
+
+
+def _mark_visited_best_effort(identity):
+    """Records that a guest reached the site, for the scheduled SMS run to
+    check (backend/guest_texts.py). Best-effort: never fails the lookup or
+    submission it's attached to."""
+    if not isinstance(identity, dict):
+        return
+    try:
+        mark_visited(_s3, BUCKET, identity.get("first_initial", ""), identity.get("last_name", ""))
+    except Exception as error:  # noqa: BLE001 -- deliberately broad, see docstring
+        print(f"Could not record site visit: {error}")
+
+
+def _send_texts_task():
+    """Invoked on a schedule (see docs/guest-information.md), not by a guest
+    request -- there's no HTTP caller to report errors to, so this only logs.
+    Nothing is sent unless GOOGLE_SHEET_ID/GID, a Google key, and a Twilio
+    credentials file all already exist; per-row "Send Text?" still gates
+    every individual guest (see backend/guest_texts.py)."""
+    if not _google_sheet_configured():
+        print("Google Sheet not configured; skipping scheduled text run.")
+        return {"skipped": True}
+    try:
+        service_account_key = _fetch_service_account_key()
+        twilio_credentials = json.loads(_s3.get_object(Bucket=BUCKET, Key=TWILIO_CREDENTIALS_KEY)["Body"].read())
+    except (ClientError, BotoCoreError, OSError, ValueError) as error:
+        print(f"Could not load credentials for scheduled text run: {error}")
+        return {"error": str(error)}
+    try:
+        result = send_invitation_texts(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID,
+            twilio_credentials, _s3, BUCKET)
+        print(f"Invitation text run: {result}")
+        return result
+    except Exception as error:  # noqa: BLE001 -- scheduled task, nothing to report to
+        print(f"Scheduled text run failed: {error}")
+        return {"error": str(error)}
 
 
 _ROUTES = {"/lookup": _lookup, "/party": _party, "/rsvp": _rsvp, "/guest-info": _guest_info, "/contact-party": _contact_party}
 
 
 def handler(event, context):
+    if event.get("task") == "send-invitation-texts":
+        return _send_texts_task()
+
     http = event.get("requestContext", {}).get("http", {})
     if http.get("method", "GET") != "POST":
         return _respond(405, {"error": "Use POST."})

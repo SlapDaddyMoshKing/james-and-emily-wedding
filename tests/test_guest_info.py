@@ -34,13 +34,14 @@ class MemoryS3:
         if self.fail:
             raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
         assert kwargs["ServerSideEncryption"] == "AES256"
-        assert kwargs["IfNoneMatch"] == "*"
-        if kwargs["Key"] in self.records:
+        if kwargs.get("IfNoneMatch") == "*" and kwargs["Key"] in self.records:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         self.records[kwargs["Key"]] = kwargs["Body"]
         self.writes += 1
 
     def get_object(self, **kwargs):
+        if kwargs["Key"] not in self.records:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         return {"Body": io.BytesIO(self.records[kwargs["Key"]])}
 
     def get_paginator(self, operation):
@@ -128,7 +129,7 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(stored["name_line_one"], "Emma Example")
         self.assertIn("submitted_at", stored)
         self.assertEqual(self.request(data)[0], 200)
-        self.assertEqual(self.s3.writes, 1)
+        self.assertEqual(self.s3.writes, 2)  # the receipt, plus a one-time "visited" tracking record
         self.assertEqual(self.request({**data, "city": "Changed"})[0], 409)
         self.assertEqual(json.loads(self.s3.records[key])["name_line_one"], "Emma Example")
 
@@ -143,10 +144,10 @@ class ContactTests(unittest.TestCase):
         data = sample()
         self.tracker_mock.side_effect = ValueError("Tracker busy")
         self.assertEqual(self.request(data)[0], 503)
-        self.assertEqual(self.s3.writes, 1)
+        self.assertEqual(self.s3.writes, 2)  # the receipt, plus a one-time "visited" tracking record
         self.tracker_mock.side_effect = None
         self.assertEqual(self.request(data)[0], 200)
-        self.assertEqual(self.s3.writes, 1)
+        self.assertEqual(self.s3.writes, 2)  # unchanged: retry doesn't re-save the receipt or the tracking record
         self.assertEqual(self.tracker_mock.call_count, 2)
 
     def test_validation_rejects_bad_fields_without_writes(self):
@@ -203,6 +204,25 @@ class ContactTests(unittest.TestCase):
         self.sheet_sync_mock.side_effect = ValueError("boom")
         self.assertEqual(self.request(sample())[0], 200)
         self.sheet_sync_mock.assert_called_once()
+
+    def test_visit_is_recorded_on_lookup_and_submission(self):
+        event = {"requestContext": {"http": {"method": "POST", "path": "/contact-party", "sourceIp": "192.0.2.1"}},
+            "headers": {"content-type": "application/json"},
+            "body": json.dumps({"first_initial": "E", "last_name": "Example"})}
+        response = self.hosted.handler(event, None)
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(len(self.s3.records), 2)  # credentials fixture, plus the new visit record
+
+    def test_scheduled_task_dispatches_without_needing_an_http_event(self):
+        with patch.object(self.hosted, "GOOGLE_SHEET_ID", None):
+            result = self.hosted.handler({"task": "send-invitation-texts"}, None)
+        self.assertEqual(result, {"skipped": True})
+        self.s3.records["twilio-credentials.json"] = b'{"account_sid": "AC", "auth_token": "x", "from_number": "+1"}'
+        with patch.object(self.hosted, "send_invitation_texts") as texts_mock:
+            texts_mock.return_value = {"sent": 1, "skipped": 0, "errors": 0}
+            result = self.hosted.handler({"task": "send-invitation-texts"}, None)
+        self.assertEqual(result, {"sent": 1, "skipped": 0, "errors": 0})
+        texts_mock.assert_called_once()
 
     def test_plus_one_named_unknown_and_not_allowed(self):
         data = sample()
