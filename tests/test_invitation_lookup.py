@@ -14,16 +14,16 @@ class InvitationTests(unittest.TestCase):
         self.addCleanup(self.folder.cleanup)
         self.database = Path(self.folder.name) / "guests.sqlite3"
         import_guests([
-            ("G001", "H001", "Renée", "O’Example", "private@example.com", 1),
-            ("G002", "H002", "Unapproved", "Guest", None, 0),
+            ("G001", "H001", "Renée", "O’Example", "private@example.com", 1, 0),
+            ("G002", "H002", "Unapproved", "Guest", None, 0, 0),
         ], self.database)
         self.app = create_app(self.database)
 
-    def request(self, body=None, method="POST", path="/api/invitations/lookup", app=None):
+    def request(self, body=None, method="POST", path="/api/invitations/lookup", app=None, cookie="", address="127.0.0.1", host="127.0.0.1:8081"):
         data = json.dumps(body).encode() if body is not None else b"{"
         environment = {"PATH_INFO": path, "REQUEST_METHOD": method,
             "CONTENT_TYPE": "application/json", "CONTENT_LENGTH": str(len(data)),
-            "REMOTE_ADDR": "127.0.0.1", "wsgi.input": io.BytesIO(data)}
+            "REMOTE_ADDR": address, "HTTP_HOST": host, "HTTP_COOKIE": cookie, "wsgi.input": io.BytesIO(data)}
         result = {}
         def start_response(status, headers):
             result.update(status=int(status[:3]), headers=dict(headers))
@@ -44,7 +44,7 @@ class InvitationTests(unittest.TestCase):
                 self.assertEqual(json.loads(result["body"]), {"invited": False})
 
     def test_revocation_takes_effect_without_restart(self):
-        import_guests([("G002", "H002", "Unapproved", "Guest", None, 0)], self.database)
+        import_guests([("G002", "H002", "Unapproved", "Guest", None, 0, 0)], self.database)
         self.assertEqual(json.loads(self.request({"first_name": "Renée", "last_name": "O’Example"})["body"]), {"invited": False})
 
     def test_bad_input_and_missing_database_fail_closed(self):
@@ -70,6 +70,25 @@ class InvitationTests(unittest.TestCase):
         for path in ["/guests.sqlite3", "/guest-list.csv", "/preview/index.html", "/wedding-content.json", "/../README.md", "/scripts/guest_list.py"]:
             self.assertEqual(self.request(method="GET", path=path)["status"], 404)
         self.assertEqual(self.request(method="GET")["status"], 405)
+
+    def test_local_preview_redirect_session_and_revocation(self):
+        folder = Path(self.folder.name) / "preview"
+        folder.mkdir()
+        (folder / "welcome.html").write_text("Private welcome")
+        (folder / "assets").mkdir()
+        (folder / "assets/engagement.jpg").write_bytes(b"private photo fixture")
+        app = create_app(self.database, preview_dir=folder)
+        self.assertEqual(self.request(method="GET", path="/welcome", app=app)["status"], 403)
+        self.assertEqual(self.request(method="GET", path="/assets/engagement.jpg", app=app)["status"], 403)
+        response = self.request({"first_name": "Renée", "last_name": "O’Example"}, app=app)
+        self.assertEqual(json.loads(response["body"]), {"invited": True, "next": "/welcome"})
+        cookie = response["headers"]["Set-Cookie"].split(";")[0]
+        self.assertEqual(self.request(method="GET", path="/welcome", app=app, cookie=cookie)["status"], 200)
+        self.assertEqual(self.request(method="GET", path="/assets/engagement.jpg", app=app, cookie=cookie)["status"], 200)
+        self.assertEqual(self.request(method="GET", path="/welcome", app=app, cookie=cookie, address="192.0.2.1")["status"], 403)
+        self.assertEqual(self.request(method="GET", path="/welcome", app=app, cookie=cookie, host="untrusted.example")["status"], 403)
+        import_guests([("G002", "H002", "Unapproved", "Guest", None, 0, 0)], self.database)
+        self.assertEqual(self.request(method="GET", path="/welcome", app=app, cookie=cookie)["status"], 403)
 
 
 if __name__ == "__main__":

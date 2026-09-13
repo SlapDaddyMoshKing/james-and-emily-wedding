@@ -20,8 +20,8 @@ output.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory() as directory:
     folder = Path(directory)
     database = folder / "guests.sqlite3"
-    import_guests([("G1", "H1", "Jordan", "Sample", None, 1),
-        ("G2", "H1", "Alex", "Partner", None, 1), ("G3", "H2", "Solo", "Example", None, 1)], database)
+    import_guests([("G1", "H1", "Jordan", "Sample", None, 1, 1),
+        ("G2", "H2", "Solo", "Example", None, 1, 0)], database)
     server = make_server("127.0.0.1", 0, create_app(database, RateLimit(limit=100), submissions_dir=folder / "contacts"), handler_class=QuietHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -40,23 +40,26 @@ with tempfile.TemporaryDirectory() as directory:
                 page.set_viewport_size({"width": width, "height": 844})
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             page.locator('[name="first_initial"]').fill('X')
-            page.locator('[name="last_name"]').fill('Unknown')
+            page.locator('#contact-lookup [name="last_name"]').fill('Unknown')
             page.get_by_role('button', name='Find my invitation').click()
             page.wait_for_function("document.querySelector('#lookup-status').classList.contains('error')")
             assert page.locator('#guest-info').is_hidden()
             page.locator('[name="first_initial"]').fill('J.')
-            page.locator('[name="last_name"]').fill('Sample')
+            page.locator('#contact-lookup [name="last_name"]').fill('Sample')
             page.get_by_role('button', name='Find my invitation').click()
             page.locator('#guest-info').wait_for(state='visible')
-            assert page.locator('#party-members input').count() == 2
-            assert page.locator('[name="name_line_one"]').input_value() == 'Jordan Sample'
-            assert page.locator('[name="name_line_one"]').get_attribute('readonly') is not None
+            assert page.locator('[name="first_name"]').input_value() == 'Jordan'
+            assert page.locator('#guest-info [name="last_name"]').input_value() == 'Sample'
+            assert page.locator('[name="first_name"]').get_attribute('readonly') is not None
+            assert page.locator('#plus-one-section').is_visible()
             fields = {'address_line1': '123 Example Lane', 'city': 'Example City', 'region': 'MA', 'postal_code': '01234'}
             for field, value in fields.items(): page.locator(f'[name="{field}"]').fill(value)
-            page.locator('#party-members input[value="G2"]').check()
-            assert page.locator('[name="address_line1"]').input_value() == ''
-            page.locator('#party-members input[value="G1"]').check()
-            assert page.locator('[name="address_line1"]').input_value() == '123 Example Lane'
+            page.locator('[name="guest_name_unknown"]').check()
+            assert page.locator('#plus-one-fields').is_hidden()
+            page.locator('[name="guest_name_unknown"]').uncheck()
+            assert page.locator('#plus-one-fields').is_visible()
+            page.locator('[name="plus_one_first_name"]').fill('Alex')
+            page.locator('[name="plus_one_last_name"]').fill('Partner')
             sent = []
             def fail(route):
                 sent.append(route.request.post_data_json)
@@ -70,20 +73,15 @@ with tempfile.TemporaryDirectory() as directory:
             page.get_by_role('button', name='Send my details').click()
             page.locator('#confirmation').wait_for(state='visible')
             assert sent[0]['submission_id'] == sent[1]['submission_id']
-            page.get_by_role('button', name='Continue to the next guest').click()
-            assert page.locator('[name="name_line_one"]').input_value() == 'Alex Partner'
-            for field, value in fields.items(): page.locator(f'[name="{field}"]').fill(value)
-            page.get_by_role('button', name='Send my details').click()
-            page.locator('#confirmation').wait_for(state='visible')
-            assert page.locator('#another-guest').is_hidden()
             records = [json.loads(p.read_text()) for p in (folder / 'contacts').glob('*.json')]
-            assert {row['name_line_one'] for row in records} == {'Jordan Sample', 'Alex Partner'}
+            assert records[0]['name_line_one'] == 'Jordan Sample'
+            assert records[0]['name_line_two'] == 'and Alex Partner'
             page.locator('#confirmation .change-invitation').click()
             page.locator('[name="first_initial"]').fill('S')
-            page.locator('[name="last_name"]').fill('Example')
+            page.locator('#contact-lookup [name="last_name"]').fill('Example')
             page.get_by_role('button', name='Find my invitation').click()
             page.locator('#guest-info').wait_for(state='visible')
-            assert page.locator('#party-members input').count() == 1
+            assert page.locator('#plus-one-section').is_hidden()
             assert 'you only' in page.locator('#party-summary').inner_text()
             assert not errors, errors
             browser.close()
@@ -91,4 +89,4 @@ with tempfile.TemporaryDirectory() as directory:
         server.shutdown()
         server.server_close()
         thread.join()
-print('Browser checks passed: two-field entry, unknown guest, matched party, solo invitation, separate drafts, retry, and two separate saves.')
+print('Browser checks passed: two-field entry, unknown guest, matched invitation, plus-one toggle, retry, and solo invitation.')

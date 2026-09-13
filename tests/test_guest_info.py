@@ -18,9 +18,9 @@ from scripts.guest_list import import_guests
 
 
 def sample():
-    return {"submission_id": str(uuid4()), "name_line_one": "Emma Example",
-        "lookup": {"first_initial": "E", "last_name": "Example"}, "guest_id": "G1", "address_line1": "123 Example Lane", "city": "Chicago",
-        "region": "IL", "postal_code": "60601"}
+    return {"submission_id": str(uuid4()), "first_name": "Emma", "last_name": "Example",
+        "lookup": {"first_initial": "E", "last_name": "Example"},
+        "address_line1": "123 Example Lane", "city": "Chicago", "region": "IL", "postal_code": "60601"}
 
 
 class MemoryS3:
@@ -65,7 +65,7 @@ class ContactTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         database = Path(self.folder.name) / "guests.sqlite3"
-        import_guests([("G1", "H1", "Emma", "Example", None, 1)], database)
+        import_guests([("G1", "H1", "Emma", "Example", None, 1, 1)], database)
         self.database = database
         self.db_patch = patch.object(self.hosted, "DATABASE_PATH", database)
         self.db_patch.start()
@@ -117,7 +117,8 @@ class ContactTests(unittest.TestCase):
     def test_validation_rejects_bad_fields_without_writes(self):
         for changes in [{"postal_code": ""}, {"region": ""},
             {"phone": []}, {"submission_id": "../example"}, {"website": "spam"},
-            {"inner_envelope": "x" * 201}, {"unknown": "extra"}]:
+            {"suffix": "x" * 41}, {"unknown": "extra"}, {"guest_name_unknown": "yes"},
+            {"plus_one_first_name": "Alex"}]:
             with self.subTest(changes=changes):
                 self.assertEqual(self.request({**sample(), **changes})[0], 400)
         self.assertFalse(self.s3.records)
@@ -128,12 +129,12 @@ class ContactTests(unittest.TestCase):
 
     def test_submission_cannot_bypass_lookup_or_add_a_guest(self):
         for payload in [ {key: value for key, value in sample().items() if key != "lookup"},
-            {**sample(), "guest_id": "someone-else"}, {**sample(), "name_line_one": "Unapproved Guest"},
+            {**sample(), "first_name": "Someone"}, {**sample(), "last_name": "Else"},
             {**sample(), "lookup": {"first_initial": "U", "last_name": "Unknown"}} ]:
             self.assertEqual(self.request(payload)[0], 403)
         self.assertEqual(self.s3.writes, 0)
         self.tracker_mock.assert_not_called()
-        import_guests([("G1", "H1", "Emma", "Example", None, 0)], self.database)
+        import_guests([("G1", "H1", "Emma", "Example", None, 0, 1)], self.database)
         self.assertEqual(self.request(sample())[0], 403)
 
     def test_protocol_size_base64_and_rate_limit(self):
@@ -150,16 +151,30 @@ class ContactTests(unittest.TestCase):
         self.assertEqual(self.hosted.handler(event, None)["statusCode"], 405)
 
     def test_export_all_pages_preserves_postal_codes_and_neutralizes_formulas(self):
-        self.request({**sample(), "name_line_two": "=1+1", "phone": "+15555550100", "postal_code": "01234"})
+        self.request({**sample(), "plus_one_first_name": "=1+1", "plus_one_last_name": "Guest", "phone": "+15555550100", "postal_code": "01234"})
         self.request(sample())
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "contacts.csv"
             self.assertEqual(export_contacts(self.s3, output), 2)
             with output.open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(rows[0]["name_line_two"], "'=1+1")
+            self.assertEqual(rows[0]["plus_one_first_name"], "'=1+1")
             self.assertEqual(rows[0]["postal_code"], "01234")
             self.assertEqual(rows[0]["phone"], "'+15555550100")
+
+    def test_plus_one_named_unknown_and_not_allowed(self):
+        data = sample()
+        status, result = self.request({**data, "plus_one_first_name": "Alex", "plus_one_last_name": "Partner"})
+        self.assertEqual(status, 200)
+        stored = json.loads(self.s3.records[f"guest-info/{data['submission_id']}.json"])
+        self.assertEqual(stored["name_line_two"], "and Alex Partner")
+        data = sample()
+        status, result = self.request({**data, "guest_name_unknown": True})
+        self.assertEqual(status, 200)
+        stored = json.loads(self.s3.records[f"guest-info/{data['submission_id']}.json"])
+        self.assertEqual(stored["name_line_two"], "and Guest")
+        import_guests([("G1", "H1", "Emma", "Example", None, 1, 0)], self.database)
+        self.assertEqual(self.request({**sample(), "guest_name_unknown": True})[0], 403)
 
     def test_privileged_test_records_are_excluded_from_export(self):
         data = sample()

@@ -48,7 +48,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 from backend.guest_tracker import save_to_tracker
-from backend.contact_access import AccessDenied, authorize_submission, lookup_party
+from backend.contact_access import AccessDenied, authorize_submission, lookup_guest
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
@@ -182,10 +182,11 @@ def _guest_info(payload):
     except sqlite3.Error:
         return _respond(503, {"error": "The invitation list is temporarily unavailable."})
     key = f"guest-info/{data['submission_id']}.json"
+    record = make_record(data)
     try:
         try:
             _s3.put_object(Bucket=BUCKET, Key=key,
-                Body=json.dumps(make_record(data), ensure_ascii=False).encode("utf-8"),
+                Body=json.dumps(record, ensure_ascii=False).encode("utf-8"),
                 ContentType="application/json; charset=utf-8", ServerSideEncryption="AES256",
                 IfNoneMatch="*")
         except ClientError as error:
@@ -195,7 +196,7 @@ def _guest_info(payload):
             previous = json.loads(_s3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
             if any(previous.get(field) != value for field, value in data.items()):
                 return _respond(409, {"error": "Please submit again with a new reference."})
-        save_to_tracker(_s3, BUCKET, data)
+        save_to_tracker(_s3, BUCKET, record)
     except (ClientError, BotoCoreError, OSError, ValueError):
         return _respond(503, {"error": "We couldn't save your details. Please try again shortly."})
     return _respond(200, {"saved": True, "submission_id": data["submission_id"]})
@@ -203,7 +204,7 @@ def _guest_info(payload):
 
 def _contact_party(payload):
     try:
-        return _respond(200, lookup_party(DATABASE_PATH, payload))
+        return _respond(200, lookup_guest(DATABASE_PATH, payload))
     except AccessDenied as error:
         return _respond(403, {"error": str(error)})
     except ValueError as error:

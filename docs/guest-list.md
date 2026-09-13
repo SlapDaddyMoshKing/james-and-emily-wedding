@@ -24,8 +24,9 @@ Use one row per named guest, including children. Assign permanent IDs; do not re
 | last_name | Guest's last name |
 | email | One email, or blank for someone without their own email |
 | access_approved | yes or no; separate from whether they RSVP yes |
+| plus_one | yes or no; whether the contact form offers this guest an (unnamed-until-they-say-so) plus-one. See [contact collection](guest-information.md) -- this is separate from the household_id-based named-plus-one mechanism this document otherwise describes, which remains for the archived RSVP flow only. |
 
-Shared emails are allowed within a household. One email cannot span multiple households. A guest with no email cannot receive an email sign-in code. A named plus-one can have their own row; leave unnamed plus-one capacity for a future invitations table.
+Shared emails are allowed within a household. One email cannot span multiple households. A guest with no email cannot receive an email sign-in code. A named plus-one (for RSVP purposes) can have their own row sharing a household_id; the contact form's `plus_one` column is unrelated and does not require a second row.
 
 Only fictional examples belong in `templates/guest-list.example.csv`. Keep real names, invitations, email addresses, RSVP data, and database backups outside this repository. Git ignore rules are a fallback; they do not protect files already committed. This directory is synced through OneDrive; the working list is deliberately stored in LocalAppData instead. Back it up privately if desired.
 

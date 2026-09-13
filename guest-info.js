@@ -6,10 +6,12 @@ const lookupButton = lookupForm.querySelector('[type="submit"]');
 const statusText = document.querySelector("#form-status");
 const lookupStatus = document.querySelector("#lookup-status");
 const confirmation = document.querySelector("#confirmation");
-let configPromise, identity, members = [], selectedId, submissionId;
-const attempts = new Map();
+const plusOneSection = document.querySelector("#plus-one-section");
+const plusOneFields = document.querySelector("#plus-one-fields");
+const unknownCheckbox = form.elements.guest_name_unknown;
+let configPromise, identity, guest, submissionId;
+let lastAttempt = null;
 let pending = false;
-const saved = new Set();
 
 function status(target, message, error = false) {
   target.textContent = message;
@@ -53,41 +55,19 @@ function errorMessage(error) {
     : error.message;
 }
 
-function renderMembers() {
-  const list = document.querySelector("#party-members");
-  list.replaceChildren();
-  for (const member of members) {
-    const label = document.createElement("label");
-    label.className = "guest-option";
-    const radio = document.createElement("input");
-    radio.type = "radio";
-    radio.name = "party-member";
-    radio.value = member.guest_id;
-    radio.checked = member.guest_id === selectedId;
-    radio.disabled = saved.has(member.guest_id) || pending;
-    radio.addEventListener("change", () => selectGuest(member.guest_id));
-    const text = document.createElement("span");
-    text.textContent = member.name + (saved.has(member.guest_id) ? " — details saved" : "");
-    label.append(radio, text);
-    list.append(label);
+function updatePlusOneFields() {
+  const unknown = plusOneSection.hidden || unknownCheckbox.checked;
+  plusOneFields.hidden = unknown;
+  for (const name of ["plus_one_first_name", "plus_one_last_name"]) {
+    const field = form.elements[name];
+    field.required = !unknown;
+    if (unknown) field.value = "";
   }
 }
+unknownCheckbox.addEventListener("change", updatePlusOneFields);
 
-// Keep each approved guest's in-progress details separate when switching guests.
-const drafts = new Map();
-function selectGuest(identifier) {
-  if (pending) return;
-  if (selectedId) drafts.set(selectedId, Object.fromEntries(new FormData(form)));
-  selectedId = identifier;
-  form.reset();
-  for (const field of form.querySelectorAll("input")) {
-    field.setCustomValidity("");
-    field.removeAttribute("aria-invalid");
-    if (drafts.has(identifier) && field.name in drafts.get(identifier)) field.value = drafts.get(identifier)[field.name];
-  }
-  form.elements.name_line_one.value = members.find(member => member.guest_id === identifier).name;
-  status(statusText, "");
-  renderMembers();
+function setFieldsDisabled(disabled) {
+  for (const field of form.elements) field.disabled = disabled;
 }
 
 lookupForm.addEventListener("submit", async event => {
@@ -105,18 +85,22 @@ lookupForm.addEventListener("submit", async event => {
   status(lookupStatus, "Finding your invitation…");
   try {
     const result = await post("contactPartyUrl", candidate);
-    if (!Array.isArray(result.members) || !result.members.length || !result.members.every(member => typeof member.guest_id === "string" && typeof member.name === "string") || !result.members.some(member => member.guest_id === result.matched_guest_id)) throw new Error("We couldn't confirm your invitation. Please try again.");
+    if (typeof result.first_name !== "string" || typeof result.last_name !== "string" || typeof result.plus_one_allowed !== "boolean") throw new Error("We couldn't confirm your invitation. Please try again.");
     identity = candidate;
-    members = result.members;
-    saved.clear();
-    drafts.clear();
-    attempts.clear();
-    selectedId = null;
-    pending = false;
-    selectGuest(result.matched_guest_id);
-    document.querySelector("#party-summary").textContent = members.length === 1
-      ? "We found your invitation. It's for you only."
-      : "We found your invitation. The guests listed below are included. Please share details for each person.";
+    guest = result;
+    lastAttempt = null;
+    form.reset();
+    for (const field of form.querySelectorAll("input, select")) {
+      field.setCustomValidity("");
+      field.removeAttribute("aria-invalid");
+    }
+    form.elements.first_name.value = guest.first_name;
+    form.elements.last_name.value = guest.last_name;
+    plusOneSection.hidden = !guest.plus_one_allowed;
+    updatePlusOneFields();
+    document.querySelector("#party-summary").textContent = guest.plus_one_allowed
+      ? "We found your invitation. It includes a plus-one."
+      : "We found your invitation. It's for you only.";
     document.querySelector("#lookup-content").hidden = true;
     document.querySelector("#form-content").hidden = false;
     document.querySelector("#form-title").focus();
@@ -139,7 +123,7 @@ form.addEventListener("input", event => {
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
-  if (pending || !identity || !selectedId) return;
+  if (pending || !identity || !guest) return;
   for (const field of form.querySelectorAll("input")) {
     field.value = field.value.trim();
     field.setCustomValidity("");
@@ -150,39 +134,35 @@ form.addEventListener("submit", async event => {
     status(statusText, "Please check the highlighted fields.", true);
     return;
   }
-  const data = { ...Object.fromEntries(new FormData(form)), lookup: identity, guest_id: selectedId };
+  const data = { ...Object.fromEntries(new FormData(form)), guest_name_unknown: unknownCheckbox.checked, lookup: identity };
   const body = JSON.stringify(data);
-  const previous = attempts.get(selectedId);
-  submissionId = previous?.body === body ? previous.id : crypto.randomUUID();
-  attempts.set(selectedId, { body, id: submissionId });
+  submissionId = lastAttempt?.body === body ? lastAttempt.id : crypto.randomUUID();
+  lastAttempt = { body, id: submissionId };
   pending = true;
   button.disabled = true;
   form.setAttribute("aria-busy", "true");
-  for (const field of form.querySelectorAll("input")) field.readOnly = true;
-  for (const control of document.querySelectorAll(".change-invitation, #party-members input")) control.disabled = true;
+  setFieldsDisabled(true);
+  for (const control of document.querySelectorAll(".change-invitation")) control.disabled = true;
   status(statusText, "Sending your details…");
   try {
     const result = await post("guestInfoUrl", { ...data, submission_id: submissionId });
     if (result.saved !== true || result.submission_id !== submissionId) throw new Error("We couldn't confirm your details were saved. Please try again.");
-    saved.add(selectedId);
-    drafts.delete(selectedId);
     document.querySelector("#form-content").hidden = true;
     confirmation.hidden = false;
     document.querySelector("#receipt").textContent = `Your reference: ${submissionId}`;
-    const remaining = members.filter(member => !saved.has(member.guest_id));
-    document.querySelector("#remaining-guests").textContent = remaining.length ? "You can now share details for the other guest on your invitation." : "Everyone on this invitation is all set.";
-    document.querySelector("#another-guest").hidden = !remaining.length;
     confirmation.focus();
     status(statusText, "");
     form.reset();
-    selectedId = null;
+    identity = null;
+    guest = null;
+    lastAttempt = null;
   } catch (error) {
-    if (error.code === 409) attempts.delete(selectedId);
+    if (error.code === 409) lastAttempt = null;
     if (error.field && form.elements.namedItem(error.field)) {
       const field = form.elements.namedItem(error.field);
+      field.disabled = false;
       field.setCustomValidity(error.message);
       field.setAttribute("aria-invalid", "true");
-      if (field.name !== "name_line_one") field.readOnly = false;
       field.reportValidity();
     }
     status(statusText, errorMessage(error), true);
@@ -190,29 +170,16 @@ form.addEventListener("submit", async event => {
     pending = false;
     button.disabled = false;
     form.removeAttribute("aria-busy");
-    for (const field of form.querySelectorAll("input")) field.readOnly = field.name === "name_line_one";
+    setFieldsDisabled(false);
     for (const control of document.querySelectorAll(".change-invitation")) control.disabled = false;
-    renderMembers();
   }
-});
-
-document.querySelector("#another-guest").addEventListener("click", () => {
-  const next = members.find(member => !saved.has(member.guest_id));
-  if (!next || pending) return;
-  selectGuest(next.guest_id);
-  confirmation.hidden = true;
-  document.querySelector("#form-content").hidden = false;
-  document.querySelector("#form-title").focus();
 });
 
 for (const control of document.querySelectorAll(".change-invitation")) control.addEventListener("click", () => {
   if (pending) return;
   identity = null;
-  selectedId = null;
-  members = [];
-  saved.clear();
-  drafts.clear();
-  attempts.clear();
+  guest = null;
+  lastAttempt = null;
   form.reset();
   confirmation.hidden = true;
   document.querySelector("#form-content").hidden = true;

@@ -5,8 +5,11 @@ before connecting this API to the public website. Never expose this dev server.
 """
 
 from collections import deque
+import argparse
 from contextlib import closing
+from http.cookies import SimpleCookie, CookieError
 import json
+import secrets
 import sqlite3
 from threading import Lock
 import time
@@ -15,7 +18,7 @@ from wsgiref.simple_server import make_server
 
 from scripts.guest_list import DATA_DIR, REPO_ROOT, private_path
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
-from backend.contact_access import AccessDenied, authorize_submission, lookup_party
+from backend.contact_access import AccessDenied, authorize_submission, lookup_guest
 
 PUBLIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -70,9 +73,11 @@ class RateLimit:
             return True
 
 
-def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_dir=None):
+def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, preview_dir=None, submissions_dir=None):
     database = private_path(database)
     limiter = limiter or RateLimit()
+    preview_dir = private_path(preview_dir) if preview_dir else None
+    preview_sessions = {}
     submissions_dir = private_path(submissions_dir or DATA_DIR / "guest-info-local")
     submission_lock = Lock()
 
@@ -86,6 +91,14 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
 
         path = environ.get("PATH_INFO", "/")
         method = environ.get("REQUEST_METHOD", "GET")
+        if preview_dir:
+            # This name-only walkthrough must never run as public authentication.
+            host = environ.get("HTTP_HOST", "").split(":")[0]
+            if environ.get("REMOTE_ADDR") not in ("127.0.0.1", "::1") or host not in ("127.0.0.1", "localhost"):
+                return respond("403 Forbidden", {"error": "Design preview is local only."})
+            for token, session in list(preview_sessions.items()):
+                if session[2] <= time.monotonic():
+                    del preview_sessions[token]
         if path == "/api/contact-party":
             if method != "POST":
                 return respond("405 Method Not Allowed", {"error": "Use POST."})
@@ -97,7 +110,7 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
                 length = int(environ.get("CONTENT_LENGTH", "0") or "0")
                 if not 1 <= length <= MAX_BODY_BYTES:
                     return respond("413 Content Too Large", {"error": "Invalid request size."})
-                return respond("200 OK", lookup_party(database, json.loads(environ["wsgi.input"].read(length))))
+                return respond("200 OK", lookup_guest(database, json.loads(environ["wsgi.input"].read(length))))
             except AccessDenied as error:
                 return respond("403 Forbidden", {"error": str(error)})
             except (ValueError, UnicodeError):
@@ -155,12 +168,38 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
                 return respond("400 Bad Request", {"error": "Enter a valid first and last name."})
             except (sqlite3.Error, OSError):
                 return respond("503 Service Unavailable", {"error": "Invitation lookup is temporarily unavailable."})
-            # Deliberately no guest IDs, emails, sessions, household counts, or private content.
+            if invited and preview_dir:
+                if not (preview_dir / "welcome.html").is_file():
+                    return respond("503 Service Unavailable", {"error": "Build the private preview first."})
+                if len(preview_sessions) >= 1000:
+                    return respond("503 Service Unavailable", {"error": "Please try again later."})
+                token = secrets.token_urlsafe(32)
+                preview_sessions[token] = (payload["first_name"], payload["last_name"], time.monotonic() + 1800)
+                return respond("200 OK", {"invited": True, "next": "/welcome"}, extra=[
+                    ("Set-Cookie", f"wedding_preview={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800")])
+            # Production lookup does not grant a session or expose private content.
             return respond("200 OK", {"invited": invited})
         if method != "GET":
             return respond("405 Method Not Allowed", {"error": "Use GET."}, extra=[("Allow", "GET")])
         if path == "/site-config.json":
             return respond("200 OK", {"contactPartyUrl": "/api/contact-party", "guestInfoUrl": "/api/guest-info", "invitationLookupUrl": "/api/invitations/lookup"})
+        private_files = {"/welcome": ("welcome.html", "text/html; charset=utf-8"),
+                         "/welcome.css": ("welcome.css", "text/css; charset=utf-8"),
+                         "/assets/engagement.jpg": ("assets/engagement.jpg", "image/jpeg")}
+        if preview_dir and path in private_files:
+            try:
+                cookies = SimpleCookie(environ.get("HTTP_COOKIE", ""))
+                cookie = cookies.get("wedding_preview")
+                session = preview_sessions.get(cookie.value) if cookie else None
+                if not session or not is_invited(database, session[0], session[1]):
+                    return respond("403 Forbidden", {"error": "Return to the RSVP page and enter an approved name."})
+            except (CookieError, sqlite3.Error, OSError, ValueError):
+                return respond("403 Forbidden", {"error": "Please return to the RSVP page."})
+            filename, content_type = private_files[path]
+            try:
+                return respond("200 OK", (preview_dir / filename).read_bytes(), content_type)
+            except OSError:
+                return respond("404 Not Found", {"error": "Preview asset not found."})
         if path in PUBLIC_FILES:
             filename, content_type = PUBLIC_FILES[path]
             return respond("200 OK", (REPO_ROOT / filename).read_bytes(), content_type)
@@ -171,6 +210,11 @@ def create_app(database=DATA_DIR / "guests.sqlite3", limiter=None, submissions_d
 
 
 if __name__ == "__main__":
-    with make_server("127.0.0.1", 8080, create_app()) as server:
-        print("Local invitation lookup: http://127.0.0.1:8080", flush=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preview", action="store_true", help="Enable a local-only name-to-welcome design walkthrough; not production authentication.")
+    parser.add_argument("--port", type=int, default=8080)
+    args = parser.parse_args()
+    preview = DATA_DIR / "preview" if args.preview else None
+    with make_server("127.0.0.1", args.port, create_app(preview_dir=preview)) as server:
+        print(f"Local invitation lookup: http://127.0.0.1:{args.port}", flush=True)
         server.serve_forever()

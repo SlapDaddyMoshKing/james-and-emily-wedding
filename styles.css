@@ -49,6 +49,12 @@ input:focus, textarea:focus { outline: 2px solid #476b84; outline-offset: 2px; }
 .guest-option input { width: 20px; min-height: 20px; height: 20px; margin: 0; accent-color: var(--ink); flex: 0 0 20px; }
 .text-button { display: block; border: 0; padding: 10px 0; min-height: 44px; background: transparent; color: var(--ink); font: 13px Arial, sans-serif; text-decoration: underline; cursor: pointer; }
 input[readonly] { background: #edf4f8; }
+select { width: 100%; min-height: 48px; margin-top: 7px; padding: 12px; border: 1px solid #b8c7cf; border-radius: 4px; background: #fff; color: var(--ink); font: 16px Arial, sans-serif; }
+.checkbox-label { display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 44px; }
+.checkbox-label input { width: 20px; height: 20px; min-height: 20px; margin: 0; flex: 0 0 20px; accent-color: var(--ink); }
+#plus-one-section { border-top: 1px solid #dce3e4; padding-top: 8px; margin-top: 10px; }
+#plus-one-section h3 { font-weight: 400; font-size: 21px; }
+#plus-one-fields { margin-top: 18px; }
 .privacy-note { margin: 0 0 18px; }
 button { touch-action: manipulation; }
 .primary-button { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 1px solid #314d61; border-radius: 4px; background: var(--ink); color: #fffdf8; min-height: 52px; padding: 14px 20px; font: 15px Arial, sans-serif; cursor: pointer; }

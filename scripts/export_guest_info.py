@@ -11,7 +11,7 @@ from scripts.guest_list import DATA_DIR, private_path
 from backend.guest_info import FIELDS
 
 BUCKET = "wedding-site-guest-data-8f3d21"
-COLUMNS = ("submission_id", "submitted_at", *FIELDS)
+COLUMNS = ("submission_id", "submitted_at", *FIELDS, "guest_name_unknown")
 
 def spreadsheet_cell(value):
     """Keep user-entered text from becoming a spreadsheet formula."""

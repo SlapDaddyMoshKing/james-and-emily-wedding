@@ -14,7 +14,7 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "WeddingSiteData"
-COLUMNS = ("guest_id", "household_id", "first_name", "last_name", "email", "access_approved")
+COLUMNS = ("guest_id", "household_id", "first_name", "last_name", "email", "access_approved", "plus_one")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 EMAIL = re.compile(r"[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+\Z")
 
@@ -61,7 +61,11 @@ def read_guests(path):
             approval = row["access_approved"].lower()
             if approval not in ("yes", "no"):
                 raise ValueError(f"Row {line}: access_approved must be yes or no.")
-            guests.append((row["guest_id"], row["household_id"], row["first_name"], row["last_name"], email or None, int(approval == "yes")))
+            plus_one = row["plus_one"].lower()
+            if plus_one not in ("yes", "no"):
+                raise ValueError(f"Row {line}: plus_one must be yes or no.")
+            guests.append((row["guest_id"], row["household_id"], row["first_name"], row["last_name"], email or None,
+                int(approval == "yes"), int(plus_one == "yes")))
     if not guests:
         raise ValueError("The list is empty. No database changes were made.")
     return guests
@@ -80,22 +84,28 @@ def import_guests(guests, database):
                 last_name TEXT NOT NULL,
                 email TEXT,
                 access_approved INTEGER NOT NULL CHECK (access_approved IN (0, 1)),
+                plus_one INTEGER NOT NULL CHECK (plus_one IN (0, 1)) DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
+            # Migrate a database created before plus_one existed.
+            existing_columns = {row[1] for row in connection.execute("PRAGMA table_info(guests)")}
+            if "plus_one" not in existing_columns:
+                connection.execute("ALTER TABLE guests ADD COLUMN plus_one INTEGER NOT NULL CHECK (plus_one IN (0, 1)) DEFAULT 0")
             connection.execute("CREATE INDEX IF NOT EXISTS guests_household ON guests(household_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS guests_email ON guests(email)")
             # Each import is a complete snapshot: omitted guests lose approval.
             # Keep records to preserve stable guest IDs for future RSVP references.
             connection.execute("UPDATE guests SET access_approved = 0, updated_at = CURRENT_TIMESTAMP")
             connection.executemany("""INSERT INTO guests
-                (guest_id, household_id, first_name, last_name, email, access_approved)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (guest_id, household_id, first_name, last_name, email, access_approved, plus_one)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guest_id) DO UPDATE SET
                     household_id = excluded.household_id,
                     first_name = excluded.first_name,
                     last_name = excluded.last_name,
                     email = excluded.email,
                     access_approved = excluded.access_approved,
+                    plus_one = excluded.plus_one,
                     updated_at = CURRENT_TIMESTAMP""", guests)
     finally:
         connection.close()

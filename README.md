@@ -4,7 +4,7 @@ The site currently collects guest contact information before invitations go out.
 
 **Website:** https://slapdaddymoshking.github.io/james-and-emily-wedding/
 
-The form matches the nine columns in your Guest Tracker workbook: Name Line One, Name Line Two, Inner Envelope, Address Line One, Address Line Two, City, State, Zip Code, and Phone Number. After matching, guests complete a separate form for each approved person on their invitation. Guest names come from the approved list and cannot be changed in the form. Name line two, inner envelope, address line two, and phone are optional. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
+After matching, a guest fills out one form for their whole invitation: a title (optional), their first and last name (from the approved list, not editable), a suffix (optional), one mailing address, and -- only when their invitation includes a plus-one -- that guest's name or a "Guest Name Unknown" checkbox. The form writes one row to the nine columns in your Guest Tracker workbook: Name Line One, Name Line Two, Inner Envelope, Address Line One, Address Line Two, City, State, Zip Code, and Phone Number. Name Line One and Name Line Two are composed from the submitted names. The page keeps Emily's name first and the pastel blue, peach, green, and yellow palette.
 
 ## Where submissions go
 
@@ -34,7 +34,11 @@ This saves all submissions to `%LOCALAPPDATA%\WeddingSiteData\guest-contact-deta
 
 ## Control invitations and plus-ones
 
-Keep one approved row per guest in the private guest-list CSV. Guests on the same invitation share a `household_id`; a solo guest has their own. Publish changes with `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`. See [invitation setup](docs/guest-information.md#invitation-access) for details. Contact spreadsheet submissions do not grant invitations.
+Keep one approved row per guest in the private guest-list CSV, with a `plus_one` column (`yes`/`no`) marking who the form offers a plus-one to. Publish changes with `python scripts/publish_guest_list.py "$env:LOCALAPPDATA\WeddingSiteData\guest-list.csv"`. See [invitation setup](docs/guest-information.md#invitation-access) for details. Contact spreadsheet submissions do not grant invitations.
+
+## See submissions as they arrive
+
+Run `python scripts/owner_dashboard.py` to open a private, local-only viewer that reads the live Guest Tracker workbook from S3, auto-refreshing every 20 seconds, with a one-click "Download latest Excel" link. It requires the `wedding-site` AWS CLI profile and `python -m pip install -r requirements-dev.txt`.
 
 ## Preview and test
 

@@ -7,8 +7,8 @@
   <meta name="description" content="A little mail, a lot of love. Share your contact details with Emily and James for their wedding invitations.">
   <meta name="theme-color" content="#dcecf6">
   <title>Share your details · Emily &amp; James</title>
-  <link rel="stylesheet" href="styles.css?v=invitation-1">
-  <script src="guest-info.js?v=invitation-1" defer></script>
+  <link rel="stylesheet" href="styles.css?v=invitation-2">
+  <script src="guest-info.js?v=invitation-2" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#guest-information">Skip to the form</a>
@@ -43,18 +43,35 @@
         <p class="eyebrow">Let's keep in touch</p>
         <h2 id="form-title" tabindex="-1">Your invitation</h2>
         <p id="party-summary" class="form-intro"></p>
-        <fieldset id="guest-picker"><legend>Whose details are you sharing?</legend><div id="party-members"></div></fieldset>
         <button class="text-button change-invitation" type="button">Check a different name</button>
-        <p class="form-intro">Share the selected guest's details below. Fields marked <span aria-hidden="true">*</span> are required.</p>
+        <p class="form-intro">Please share one mailing address for your invitation. Fields marked <span aria-hidden="true">*</span> are required.</p>
         <form id="guest-info" aria-describedby="privacy-note" novalidate>
           <fieldset>
             <legend><span>01</span> A name for our list</legend>
-            <label>Name line one <span aria-hidden="true">*</span><input name="name_line_one" autocomplete="off" maxlength="200" required readonly aria-describedby="name-help" placeholder="E. Smith"></label>
-            <p class="field-help" id="name-help">This name comes from your invitation. Contact Emily or James if it needs a correction.</p>
-            <label>Name line two <small>(optional)</small><input name="name_line_two" maxlength="200" aria-describedby="second-name-help"></label>
-            <p class="field-help" id="second-name-help">An extra line for this guest's printed name, if needed. Each approved guest has a separate form and a separate row on our list.</p>
-            <label>Inner envelope <small>(optional)</small><input name="inner_envelope" maxlength="200" placeholder="Emily" aria-describedby="envelope-help"></label>
-            <p class="field-help" id="envelope-help">How you'd like to be addressed on the inside envelope, such as your first name.</p>
+            <div class="fields">
+              <label>Title <small>(optional)</small><select name="title" autocomplete="honorific-prefix"><option value="">No title</option><option>Mr.</option><option>Mrs.</option><option>Ms.</option><option>Miss</option><option>Mx.</option><option>Dr.</option><option>Prof.</option><option>Rev.</option></select></label>
+              <label>First Name <span aria-hidden="true">*</span><input name="first_name" autocomplete="given-name" maxlength="100" required readonly aria-describedby="name-help"></label>
+            </div>
+            <div class="fields">
+              <label>Last Name <span aria-hidden="true">*</span><input name="last_name" autocomplete="family-name" maxlength="100" required readonly aria-describedby="name-help"></label>
+              <label>Suffix <small>(optional)</small><input name="suffix" autocomplete="honorific-suffix" maxlength="40" placeholder="Jr., Sr., III"></label>
+            </div>
+            <p class="field-help" id="name-help">Your first and last name come from your invitation. Contact Emily or James if it needs a correction.</p>
+            <div id="plus-one-section" hidden>
+              <h3>Your plus-one</h3>
+              <label class="checkbox-label"><input type="checkbox" name="guest_name_unknown"> <span>Guest Name Unknown</span></label>
+              <p class="field-help">If you don't know who you'll bring yet, you can tell us later.</p>
+              <div id="plus-one-fields">
+                <div class="fields">
+                  <label>Guest title <small>(optional)</small><select name="plus_one_title" autocomplete="off"><option value="">No title</option><option>Mr.</option><option>Mrs.</option><option>Ms.</option><option>Miss</option><option>Mx.</option><option>Dr.</option><option>Prof.</option><option>Rev.</option></select></label>
+                  <label>Guest suffix <small>(optional)</small><input name="plus_one_suffix" maxlength="40"></label>
+                </div>
+                <div class="fields">
+                  <label>Guest first name <span aria-hidden="true">*</span><input name="plus_one_first_name" maxlength="100"></label>
+                  <label>Guest last name <span aria-hidden="true">*</span><input name="plus_one_last_name" maxlength="100"></label>
+                </div>
+              </div>
+            </div>
           </fieldset>
           <fieldset>
             <legend><span>02</span> Somewhere to send a little joy</legend>
@@ -80,10 +97,9 @@
         <div class="confirmation-mark" aria-hidden="true">♡</div>
         <p class="eyebrow">A little closer to celebrating</p>
         <h2>You're on our list.</h2>
-        <p>Thank you! Your contact details have been saved for Emily &amp; James.</p>
+        <p>Thank you! Your invitation details and mailing address have been saved for Emily &amp; James.</p>
         <p>We'll use them for invitations and wedding updates. We'll ask for your RSVP later.</p>
         <p class="receipt" id="receipt"></p>
-        <p id="remaining-guests"></p><button class="secondary-button" id="another-guest" type="button">Continue to the next guest</button>
         <button class="text-button change-invitation" type="button">Check a different name</button>
         <p class="field-help">Need to correct something? Contact Emily or James with your reference so we can update your details.</p>
       </div>
