@@ -48,11 +48,15 @@ from botocore.exceptions import BotoCoreError, ClientError
 from backend.server import RateLimit, is_invited, normalize_name
 from backend.guest_info import MAX_BODY_BYTES, InvalidSubmission, make_record, validate_submission
 from backend.guest_tracker import save_to_tracker
+from backend.guest_sheet import sync_submission
 from backend.contact_access import AccessDenied, authorize_submission, lookup_guest
 
 BUCKET = os.environ["GUEST_DATA_BUCKET"]
 DATABASE_PATH = Path("/tmp/wedding-site/guests.sqlite3")
 MAX_PARTY_SIZE = 20
+GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
+GOOGLE_SHEET_GID = os.environ.get("GOOGLE_SHEET_GID")
+GOOGLE_SERVICE_ACCOUNT_KEY = "google-service-account.json"
 
 _s3 = boto3.client("s3")
 # Per-warm-container only (not shared across concurrent Lambdas); a coarse
@@ -199,7 +203,22 @@ def _guest_info(payload):
         save_to_tracker(_s3, BUCKET, record)
     except (ClientError, BotoCoreError, OSError, ValueError):
         return _respond(503, {"error": "We couldn't save your details. Please try again shortly."})
+    _sync_to_google_sheet(record)
     return _respond(200, {"saved": True, "submission_id": data["submission_id"]})
+
+
+def _sync_to_google_sheet(record):
+    """Best-effort only: the private Excel tracker above is the authoritative
+    record, already saved by this point. A human-maintained planning sheet
+    can have a missing row, a renamed column, or an expired credential --
+    none of that should turn into a failed submission for the guest."""
+    if not (GOOGLE_SHEET_ID and GOOGLE_SHEET_GID):
+        return
+    try:
+        service_account_json = _s3.get_object(Bucket=BUCKET, Key=GOOGLE_SERVICE_ACCOUNT_KEY)["Body"].read()
+        sync_submission(service_account_json, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID, record)
+    except Exception as error:  # noqa: BLE001 -- deliberately broad, see docstring
+        print(f"Google Sheet sync failed for submission {record.get('submission_id')}: {error}")
 
 
 def _contact_party(payload):

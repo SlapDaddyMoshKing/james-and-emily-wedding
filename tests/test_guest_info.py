@@ -162,6 +162,22 @@ class ContactTests(unittest.TestCase):
             self.assertEqual(rows[0]["postal_code"], "01234")
             self.assertEqual(rows[0]["phone"], "'+15555550100")
 
+    def test_google_sheet_sync_is_optional_and_never_blocks_a_submission(self):
+        with patch.object(self.hosted, "sync_submission") as sync_mock:
+            self.assertEqual(self.request(sample())[0], 200)
+            sync_mock.assert_not_called()  # GOOGLE_SHEET_ID/GID unset: sync is off by default
+        self.s3.records["google-service-account.json"] = b'{"fake": "credentials"}'
+        with patch.object(self.hosted, "GOOGLE_SHEET_ID", "sheet-id"), \
+                patch.object(self.hosted, "GOOGLE_SHEET_GID", "123"), \
+                patch.object(self.hosted, "sync_submission") as sync_mock:
+            self.assertEqual(self.request(sample())[0], 200)
+            sync_mock.assert_called_once()
+            self.assertEqual(sync_mock.call_args[0][3]["first_name"], "Emma")
+        with patch.object(self.hosted, "GOOGLE_SHEET_ID", "sheet-id"), \
+                patch.object(self.hosted, "GOOGLE_SHEET_GID", "123"), \
+                patch.object(self.hosted, "sync_submission", side_effect=ValueError("boom")):
+            self.assertEqual(self.request(sample())[0], 200)
+
     def test_plus_one_named_unknown_and_not_allowed(self):
         data = sample()
         status, result = self.request({**data, "plus_one_first_name": "Alex", "plus_one_last_name": "Partner"})

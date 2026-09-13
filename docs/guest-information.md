@@ -4,6 +4,21 @@ After the invitation lookup, the contact form matches `s3://wedding-site-guest-d
 
 The workbook's nine columns and existing guest data are preserved. Styled empty rows are used after the last row containing data, rather than skipping hundreds of template rows. ZIP codes and phone numbers are stored as text. All submitted values are literal text, never spreadsheet formulas. Names are not used to deduplicate different guests.
 
+## Optional: syncing to the shared Google Sheet
+
+The Excel workbook above is the authoritative record of every submission, saved atomically before anything else happens. Separately, and best-effort only, a submission can also update the matching row in the shared Google Sheet used to plan the guest list -- so it's not just the source for who's invited, but also fills in with what they actually submitted. A failure here (a missing row, a renamed column, an expired credential) is logged to CloudWatch and never fails or blocks the guest's submission; the workbook write above has already succeeded by that point.
+
+It updates the row matching the guest's first initial and last name, writing only the columns it has data for and never touching others -- so a column like `Email Address` (never collected by the form) or your own notes are left alone. It writes `Guest First Name`, `Guest Last Name`, `Plus One First Name`, `Plus One Last Name` (or `Unknown` when the guest checked "Guest Name Unknown"), `Phone Number`, `Address Line One`, `Address Line Two`, `City`, `State`, `Zip Code` -- matched case/whitespace-insensitively, so renaming `State ` to `State` or reordering columns doesn't break it. It's disabled unless configured (see below), and requires the row already exist -- it never adds a guest to the sheet.
+
+To turn it on:
+
+1. In Google Cloud Console, enable the **Google Sheets API** and create a **service account**; download its JSON key.
+2. Share the Google Sheet with that service account's email (looks like `xxx@yyy.iam.gserviceaccount.com`) as an **Editor**.
+3. Upload the key to the private bucket: `aws s3 cp service-account.json s3://wedding-site-guest-data-8f3d21/google-service-account.json --profile wedding-site --sse AES256`.
+4. Set two environment variables on the `wedding-lookup` Lambda: `GOOGLE_SHEET_ID` (from the sheet's URL, the long ID between `/d/` and `/edit`) and `GOOGLE_SHEET_GID` (the number after `gid=` in the URL -- each tab has its own).
+
+No redeploy is needed to turn this on or off afterward -- it's controlled entirely by those two environment variables and the S3 key existing.
+
 ## Invitation access
 
 The entry page shows only first initial and last name. `POST /contact-party` matches an approved guest in the private `guests.sqlite3`, ignoring case, extra whitespace, and an optional period after the initial. Surnames match exactly after normalization. Unknown, revoked, or ambiguous initial/surname matches do not reveal any party or open the contact form.
