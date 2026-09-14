@@ -9,6 +9,7 @@ const confirmation = document.querySelector("#confirmation");
 const plusOneSection = document.querySelector("#plus-one-section");
 const plusOneFields = document.querySelector("#plus-one-fields");
 const unknownCheckbox = form.elements.guest_name_unknown;
+const smsConsentCheckbox = form.elements.sms_consent;
 let configPromise, identity, guest, submissionId;
 let lastAttempt = null;
 let pending = false;
@@ -148,7 +149,8 @@ form.addEventListener("submit", async event => {
     status(statusText, "Please check the highlighted fields.", true);
     return;
   }
-  const data = { ...Object.fromEntries(new FormData(form)), guest_name_unknown: unknownCheckbox.checked, lookup: identity };
+  const data = { ...Object.fromEntries(new FormData(form)), guest_name_unknown: unknownCheckbox.checked,
+    sms_consent: smsConsentCheckbox.checked, lookup: identity };
   const body = JSON.stringify(data);
   submissionId = lastAttempt?.body === body ? lastAttempt.id : crypto.randomUUID();
   lastAttempt = { body, id: submissionId };

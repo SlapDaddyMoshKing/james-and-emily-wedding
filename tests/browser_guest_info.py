@@ -52,6 +52,11 @@ with tempfile.TemporaryDirectory() as directory:
             assert page.locator('#guest-info [name="last_name"]').input_value() == 'Sample'
             assert page.locator('[name="first_name"]').get_attribute('readonly') is not None
             assert page.locator('#plus-one-section').is_visible()
+            assert not page.locator('[name="sms_consent"]').is_checked()
+            assert 'Reply STOP to opt out' in page.locator('.sms-consent').inner_text()
+            assert 'SMS Terms' in page.locator('.sms-policies').inner_text()
+            assert 'SMS Privacy' in page.locator('.sms-policies').inner_text()
+            page.screenshot(path=str(output / "sms-consent-section.png"), full_page=True)
             fields = {'address_line1': '123 Example Lane', 'city': 'Example City', 'region': 'MA', 'postal_code': '01234'}
             for field, value in fields.items(): page.locator(f'[name="{field}"]').fill(value)
             page.locator('[name="guest_name_unknown"]').check()
@@ -73,6 +78,7 @@ with tempfile.TemporaryDirectory() as directory:
             page.get_by_role('button', name='Send my details').click()
             page.locator('#confirmation').wait_for(state='visible')
             assert sent[0]['submission_id'] == sent[1]['submission_id']
+            assert sent[1]['sms_consent'] is False  # submitted without checking the box
             records = [json.loads(p.read_text()) for p in (folder / 'contacts').glob('*.json')]
             assert records[0]['name_line_one'] == 'Jordan Sample'
             assert records[0]['name_line_two'] == 'and Alex Partner'

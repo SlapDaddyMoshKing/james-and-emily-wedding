@@ -49,6 +49,10 @@ input[readonly] { background: #edf4f8; }
 select { width: 100%; min-height: 48px; margin-top: 7px; padding: 12px; border: 1px solid #b8c7cf; border-radius: 4px; background: #fff; color: var(--ink); font: 16px Arial, sans-serif; }
 .checkbox-label { display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 44px; }
 .checkbox-label input { width: 20px; height: 20px; min-height: 20px; margin: 0; flex: 0 0 20px; accent-color: var(--ink); }
+.checkbox-label.sms-consent { align-items: flex-start; }
+.checkbox-label.sms-consent input { margin-top: 2px; }
+.sms-policies { margin: 10px 0 0; }
+.sms-policies p { margin: 0 0 8px; }
 #plus-one-section { border-top: 1px solid #dce3e4; padding-top: 8px; margin-top: 10px; }
 #plus-one-section h3 { font-weight: 400; font-size: 21px; }
 #plus-one-fields { margin-top: 18px; }

@@ -19,7 +19,7 @@ class InvalidSubmission(ValueError):
         self.field = field
 
 def validate_submission(payload):
-    if not isinstance(payload, dict) or set(payload) - (set(FIELDS) | {"submission_id", "website", "guest_name_unknown"}):
+    if not isinstance(payload, dict) or set(payload) - (set(FIELDS) | {"submission_id", "website", "guest_name_unknown", "sms_consent"}):
         raise InvalidSubmission("Please send a valid contact form.")
     try:
         identifier = str(UUID(payload.get("submission_id", ""), version=4))
@@ -54,6 +54,10 @@ def validate_submission(payload):
     if has_plus_one_name and not result["plus_one_last_name"]:
         raise InvalidSubmission("Please enter your guest's last name.", "plus_one_last_name")
     result["guest_name_unknown"] = unknown
+    sms_consent = payload.get("sms_consent", False)
+    if not isinstance(sms_consent, bool):
+        raise InvalidSubmission("Please send a valid contact form.", "sms_consent")
+    result["sms_consent"] = sms_consent
     return result
 
 def format_name(title, first, last, suffix):

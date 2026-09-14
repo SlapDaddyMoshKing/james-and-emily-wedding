@@ -154,10 +154,20 @@ class ContactTests(unittest.TestCase):
         for changes in [{"postal_code": ""}, {"region": ""},
             {"phone": []}, {"submission_id": "../example"}, {"website": "spam"},
             {"suffix": "x" * 41}, {"unknown": "extra"}, {"guest_name_unknown": "yes"},
-            {"plus_one_first_name": "Alex"}]:
+            {"plus_one_first_name": "Alex"}, {"sms_consent": "yes"}]:
             with self.subTest(changes=changes):
                 self.assertEqual(self.request({**sample(), **changes})[0], 400)
         self.assertEqual(self.s3.writes, 0)
+
+    def test_sms_consent_is_optional_unchecked_by_default_and_recorded(self):
+        data = sample()
+        self.assertEqual(self.request(data)[0], 200)
+        stored = json.loads(self.s3.records[f"guest-info/{data['submission_id']}.json"])
+        self.assertIs(stored["sms_consent"], False)  # not sent: defaults to opted out
+        data = {**sample(), "sms_consent": True}
+        self.assertEqual(self.request(data)[0], 200)
+        stored = json.loads(self.s3.records[f"guest-info/{data['submission_id']}.json"])
+        self.assertIs(stored["sms_consent"], True)
 
     def test_international_postal_code(self):
         data = {**sample(), "postal_code": "SW1A 1AA"}
