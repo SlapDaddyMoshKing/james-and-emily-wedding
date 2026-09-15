@@ -227,7 +227,7 @@ class ContactTests(unittest.TestCase):
         with patch.object(self.hosted, "GOOGLE_SHEET_ID", None):
             result = self.hosted.handler({"task": "send-invitation-texts"}, None)
         self.assertEqual(result, {"skipped": True})
-        self.s3.records["twilio-credentials.json"] = b'{"account_sid": "AC", "auth_token": "x", "from_number": "+1"}'
+        self.s3.records["gmail-credentials.json"] = b'{"email": "wedding@example.com", "app_password": "x"}'
         with patch.object(self.hosted, "send_invitation_texts") as texts_mock:
             texts_mock.return_value = {"sent": 1, "skipped": 0, "errors": 0}
             result = self.hosted.handler({"task": "send-invitation-texts"}, None)

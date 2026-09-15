@@ -46,7 +46,7 @@ haven't visited the site yet, skipping anyone already texted in the last
 
 Configure via environment variables on the Lambda function:
   GUEST_DATA_BUCKET   S3 bucket holding guests.sqlite3, rsvps/*, the
-                       Google service account key, and the Twilio
+                       Google service account key, and the Gmail
                        credentials file
   GOOGLE_SHEET_ID      The shared sheet's ID, from its URL
   GOOGLE_SHEET_GID     The specific tab's gid, from its URL
@@ -77,7 +77,7 @@ MAX_PARTY_SIZE = 20
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 GOOGLE_SHEET_GID = os.environ.get("GOOGLE_SHEET_GID")
 GOOGLE_SERVICE_ACCOUNT_KEY = "google-service-account.json"
-TWILIO_CREDENTIALS_KEY = "twilio-credentials.json"
+GMAIL_CREDENTIALS_KEY = "gmail-credentials.json"
 
 _s3 = boto3.client("s3")
 # Per-warm-container only (not shared across concurrent Lambdas); a coarse
@@ -287,7 +287,7 @@ def _mark_visited_best_effort(identity):
 def _send_texts_task():
     """Invoked on a schedule (see docs/guest-information.md), not by a guest
     request -- there's no HTTP caller to report errors to, so this only logs.
-    Nothing is sent unless GOOGLE_SHEET_ID/GID, a Google key, and a Twilio
+    Nothing is sent unless GOOGLE_SHEET_ID/GID, a Google key, and a Gmail
     credentials file all already exist; per-row "Send Text?" still gates
     every individual guest (see backend/guest_texts.py)."""
     if not _google_sheet_configured():
@@ -295,13 +295,13 @@ def _send_texts_task():
         return {"skipped": True}
     try:
         service_account_key = _fetch_service_account_key()
-        twilio_credentials = json.loads(_s3.get_object(Bucket=BUCKET, Key=TWILIO_CREDENTIALS_KEY)["Body"].read())
+        gmail_credentials = json.loads(_s3.get_object(Bucket=BUCKET, Key=GMAIL_CREDENTIALS_KEY)["Body"].read())
     except (ClientError, BotoCoreError, OSError, ValueError) as error:
         print(f"Could not load credentials for scheduled text run: {error}")
         return {"error": str(error)}
     try:
         result = send_invitation_texts(service_account_key, GOOGLE_SHEET_ID, GOOGLE_SHEET_GID,
-            twilio_credentials, _s3, BUCKET)
+            gmail_credentials, _s3, BUCKET)
         print(f"Invitation text run: {result}")
         return result
     except Exception as error:  # noqa: BLE001 -- scheduled task, nothing to report to

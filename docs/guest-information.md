@@ -20,6 +20,7 @@ A guest's own row can already hold information the couple knows ahead of time --
 | `Plus One First Name`, `Plus One Last Name` | Prefills the plus-one section. The literal value `Unknown` in either pre-checks "Guest Name Unknown" instead. |
 | `Phone Number`, `Address Line One`, `Address Line Two`, `City`, `State`, `Zip Code` | Prefills the matching form field. Also used to text an invitation link -- see below. |
 | `Send Text?` | `Yes` opts that row in to the scheduled invitation text (see below); blank/anything else means never text them. |
+| `Carrier` | Required for the scheduled invitation text (see below) -- one of the major US carriers/MVNOs; blank or unrecognized means never text them, same as a missing phone number. |
 | `Email Address` | Never read or written by the site. |
 
 Column names are matched case/whitespace-insensitively, and in any order -- other columns (your own notes, phone, whatever) are ignored. Bypassing the browser lookup or renaming the guest doesn't grant another invitation or unlock a plus-one that isn't on their row: `POST /guest-info` re-reads the sheet itself before accepting a submission, rechecking the name match and the plus-one flag exactly as the lookup did.
@@ -41,22 +42,29 @@ No redeploy is needed to change the key, sheet, or tab afterward -- it's control
 
 ### Texting guests an invitation link (backend/guest_texts.py)
 
-A scheduled, daily check (not tied to any guest visiting the site) can text a link to the site to guests who haven't filled in their details yet. Nothing is sent unless **all** of these are true for a given row:
+A scheduled, daily check (not tied to any guest visiting the site) can text a link to the site to guests who haven't filled in their details yet. This is sent via each carrier's **email-to-SMS gateway** (e.g. a text to a Verizon number is really an email to `<10digits>@vtext.com`), through a Gmail account -- deliberately not a paid SMS API like Twilio, to avoid the US carrier-mandated A2P 10DLC / toll-free verification process required for automated bulk SMS through any such provider (this is a carrier rule, not specific to one vendor -- switching providers doesn't avoid it). The tradeoff: no delivery receipts, and no automatic opt-out handling -- see below.
+
+Nothing is sent unless **all** of these are true for a given row:
 
 - `Send Text?` is `Yes` -- blank or anything else means never text that guest, so nothing goes out until you set this per row (fill it down for everyone at once when ready).
 - The `Phone Number` column has a valid US number (10 digits, or 11 starting with a leading 1 -- other formats are skipped, not guessed at).
+- The `Carrier` column matches one this recognizes (see `CARRIER_GATEWAYS` in `backend/guest_texts.py` -- the major US carriers and a few common MVNOs; an unrecognized or blank carrier is skipped, never guessed at).
 - That guest hasn't yet completed the site's name lookup. This is tracked privately in S3 (`sms/<hash of first initial + last name>.json`), not as a sheet column, so a plain page load doesn't cost a Sheets API write -- recorded the moment someone successfully looks themselves up, before they even reach the address form.
-- They haven't been texted in the last 21 days (or ever). A guest who replies STOP is recorded as opted out and never texted again, regardless of this column.
+- They haven't been texted in the last 21 days (or ever).
 
 The message: *"Hi \[first name\]! It's Emily & James's wedding site -- please share your mailing address here so we can send you an invitation: \[link\]. Reply STOP to opt out."* -- the name comes from `Guest First Name` (or the `First Initial` if that's blank).
 
+**About "Reply STOP":** because this goes out as email, a guest's reply lands back in the sending Gmail inbox as a normal email reply -- there's nothing in this codebase reading that inbox automatically. If a guest asks to stop, the manual fix is to set their row's `Send Text?` to `No` (or blank) yourself; check the Gmail inbox occasionally if you're relying on the STOP line.
+
 **Setup** (in addition to the Google Sheet setup above):
 
-1. In your Twilio Console, note your **Account SID**, **Auth Token**, and a **phone number** you've bought that can send SMS (E.164 format, e.g. `+15551234567`). A trial account can only text numbers you've manually verified in the Twilio console -- upgrade to a paid account before relying on this for real guests, and for reliable US delivery either verify a toll-free number or register for A2P 10DLC.
-2. Upload the credentials as one JSON file: `aws s3 cp twilio-credentials.json s3://wedding-site-guest-data-8f3d21/twilio-credentials.json --profile wedding-site --sse AES256`, where the file is `{"account_sid": "AC...", "auth_token": "...", "from_number": "+1..."}`.
+1. In the Google Account that will send these (a dedicated one is fine, doesn't need to be the wedding Gmail used elsewhere): turn on 2-Step Verification, then create an [App Password](https://myaccount.google.com/apppasswords) (Google Account > Security > 2-Step Verification > App passwords). Regular account passwords don't work for SMTP.
+2. Upload the credentials as one JSON file: `aws s3 cp gmail-credentials.json s3://wedding-site-guest-data-8f3d21/gmail-credentials.json --profile wedding-site --sse AES256`, where the file is `{"email": "you@gmail.com", "app_password": "xxxx xxxx xxxx xxxx"}`.
 3. Create a daily schedule that invokes the `wedding-lookup` Lambda with the JSON input `{"task": "send-invitation-texts"}` -- e.g. with [EventBridge Scheduler](https://docs.aws.amazon.com/scheduler/latest/UserGuide/getting-started.html): `aws scheduler create-schedule --name wedding-invitation-texts --schedule-expression "rate(1 day)" --target "{\"Arn\":\"<wedding-lookup function ARN>\",\"RoleArn\":\"<a role EventBridge Scheduler can assume to invoke it>\",\"Input\":\"{\\\"task\\\":\\\"send-invitation-texts\\\"}\"}" --flexible-time-window "{\"Mode\":\"OFF\"}" --profile wedding-site --region us-east-2` (the invoked role needs `lambda:InvokeFunction` on `wedding-lookup`).
 
-This can safely be deployed and scheduled ahead of time: with no Twilio credentials in S3, or no row marked `Send Text?`, the scheduled run does nothing but log that it skipped. Invoking the Lambda directly with `{"task": "send-invitation-texts"}` (e.g. from the AWS Console's Test feature) runs it on demand instead of waiting for the schedule.
+This can safely be deployed and scheduled ahead of time: with no Gmail credentials in S3, or no row marked `Send Text?`, the scheduled run does nothing but log that it skipped. Invoking the Lambda directly with `{"task": "send-invitation-texts"}` (e.g. from the AWS Console's Test feature) runs it on demand instead of waiting for the schedule.
+
+Gmail's own sending limits apply (roughly 500 recipients/day for a regular account) -- comfortably enough for a wedding guest list, but worth knowing if this account is used for other bulk mail too.
 
 ### Editing the list
 
@@ -70,7 +78,7 @@ A hidden `_WebsiteSubmissions` sheet stores references, payload hashes, and gues
 
 S3 `If-Match` checks the workbook ETag on each write. A simultaneous submission causes a reload and retry instead of overwriting the other guest. After four conflicts the API asks the guest to retry. See [AWS conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).
 
-The Lambda role needs `s3:GetObject` for the Google service account key and the Twilio credentials file, plus `s3:GetObject` and `s3:PutObject` for `welcome/Guest Tracker.xlsx`, `guest-info/*`, and `sms/*` (visit/text tracking). The workbook remains private; it is not fetched by the browser. The existing GitHub Pages origin, API Gateway route, and rate limits remain in use. A private original workbook backup was saved under the bucket's `backups/` prefix before deployment.
+The Lambda role needs `s3:GetObject` for the Google service account key and the Gmail credentials file, plus `s3:GetObject` and `s3:PutObject` for `welcome/Guest Tracker.xlsx`, `guest-info/*`, and `sms/*` (visit/text tracking). The workbook remains private; it is not fetched by the browser. The existing GitHub Pages origin, API Gateway route, and rate limits remain in use. A private original workbook backup was saved under the bucket's `backups/` prefix before deployment.
 
 When editing the workbook manually, download the latest version and avoid uploading an older copy over incoming guest submissions. Preserve the column headers and hidden reference sheet.
 

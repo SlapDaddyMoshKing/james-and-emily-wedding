@@ -1,12 +1,23 @@
 """Best-effort SMS outreach: invite guests who haven't visited the site yet.
 
+Sent via each carrier's email-to-SMS gateway (e.g. a text to a Verizon
+number is an email to <10digits>@vtext.com), through a Gmail account --
+not a paid SMS API. This avoids the US carrier-mandated A2P 10DLC / toll-free
+verification process required for automated bulk SMS through providers like
+Twilio, at the cost of needing each guest's carrier (a "Carrier" sheet
+column) and having no delivery receipts or automatic opt-out handling: a
+guest's "STOP" reply lands as a normal email reply in the sending Gmail
+inbox, not anywhere this code can see, so opting someone out means manually
+setting their row's "Send Text?" to No.
+
 Reads the same shared Google Sheet as backend/guest_sheet.py. A guest is
-texted only when their row's "Send Text?" column is Yes and they have a
-phone number -- so nothing goes out until that's set per row, even once
-Twilio credentials and the scheduled run both exist. Among those, a guest
-is texted only if they haven't yet completed the site's name lookup
-(mark_visited records that, called from backend/lambda_handler.py on every
-successful /contact-party), and re-texted at most once every 21 days.
+texted only when their row's "Send Text?" column is Yes, they have a US
+phone number, and their carrier is recognized -- so nothing goes out until
+that's set per row, even once Gmail credentials and the scheduled run both
+exist. Among those, a guest is texted only if they haven't yet completed
+the site's name lookup (mark_visited records that, called from
+backend/lambda_handler.py on every successful /contact-party), and
+re-texted at most once every 21 days.
 
 "Visited" and "last texted" are tracked in S3 (sms/<key>.json), not as a
 sheet column, so a plain page load doesn't cost a Sheets API write. The
@@ -15,19 +26,17 @@ name -- the same identity the rest of this project matches on -- not the
 phone number, so it stays stable even if a phone number changes or is
 added later.
 
-A bad number or a Twilio error for one guest (including code 21610,
-"unsubscribed recipient", recorded so that guest is never retried) must
-never stop the rest of the run: send_invitation_texts catches per-guest
-and always finishes evaluating every row.
+A bad number, an unrecognized carrier, or a send failure for one guest
+must never stop the rest of the run: send_invitation_texts catches
+per-guest and always finishes evaluating every row.
 """
-import base64
 from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
 import hashlib
 import json
 import re
-from urllib.error import HTTPError
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+import smtplib
+from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 
@@ -39,26 +48,33 @@ TIMEOUT = 10
 MESSAGE_TEMPLATE = ("Hi {name}! It's Emily & James's wedding site -- please share your mailing "
     "address here so we can send you an invitation: {link} Reply STOP to opt out.")
 
+# Carrier name (matched case/whitespace-insensitively) -> email-to-SMS gateway
+# domain. Covers the major US carriers; an unlisted or MVNO carrier not on
+# this list is skipped rather than guessed at.
+CARRIER_GATEWAYS = {
+    "at&t": "txt.att.net", "att": "txt.att.net",
+    "verizon": "vtext.com", "xfinity mobile": "vtext.com", "xfinity": "vtext.com", "visible": "vtext.com",
+    "t-mobile": "tmomail.net", "tmobile": "tmomail.net", "mint mobile": "tmomail.net", "metro by t-mobile": "tmomail.net",
+    "metropcs": "tmomail.net", "metro": "tmomail.net",
+    "sprint": "messaging.sprintpcs.com",
+    "boost mobile": "sms.myboostmobile.com", "boost": "sms.myboostmobile.com",
+    "cricket": "sms.cricketwireless.net", "cricket wireless": "sms.cricketwireless.net",
+    "us cellular": "email.uscc.net", "uscellular": "email.uscc.net",
+    "google fi": "msg.fi.google.com", "googlefi": "msg.fi.google.com",
+}
 
-class TwilioError(Exception):
-    def __init__(self, status, body):
-        super().__init__(f"Twilio error {status}: {body}")
-        self.status = status
-        try:
-            self.code = json.loads(body).get("code")
-        except ValueError:
-            self.code = None
+
+def _carrier_domain(carrier):
+    return CARRIER_GATEWAYS.get(carrier.strip().casefold())
 
 
-def _to_e164(phone):
+def _phone_digits(phone):
     """US-only: 10 digits, or 11 starting with a leading 1. Anything else
     (missing, malformed, international) is treated as unsendable."""
     digits = re.sub(r"\D", "", phone or "")
-    if len(digits) == 10:
-        return "+1" + digits
     if len(digits) == 11 and digits.startswith("1"):
-        return "+" + digits
-    return None
+        digits = digits[1:]
+    return digits if len(digits) == 10 else None
 
 
 def _tracking_key(first_initial, last_name):
@@ -97,20 +113,7 @@ def mark_visited(s3, bucket, first_initial, last_name):
         _write_tracking(s3, bucket, key, record)
 
 
-def _send_sms(account_sid, auth_token, from_number, to_number, body):
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{quote(account_sid)}/Messages.json"
-    data = urlencode({"To": to_number, "From": from_number, "Body": body}).encode("utf-8")
-    credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("ascii")
-    request = Request(url, data=data, method="POST", headers={
-        "Authorization": f"Basic {credentials}", "Content-Type": "application/x-www-form-urlencoded"})
-    try:
-        with urlopen(request, timeout=TIMEOUT) as response:
-            return json.loads(response.read())
-    except HTTPError as error:
-        raise TwilioError(error.code, error.read().decode("utf-8", "replace")) from error
-
-
-def send_invitation_texts(service_account_json, spreadsheet_id, sheet_gid, twilio_credentials, s3, bucket):
+def send_invitation_texts(service_account_json, spreadsheet_id, sheet_gid, gmail_credentials, s3, bucket):
     """Evaluate every row and text whoever is due. Returns a small summary
     dict for logging; never raises for a single guest's failure."""
     token = _access_token(service_account_json)
@@ -122,39 +125,42 @@ def send_invitation_texts(service_account_json, spreadsheet_id, sheet_gid, twili
         return summary
     header = rows[0]
     now = datetime.now(timezone.utc)
-    for row in rows[1:]:
-        data = _row_as_dict(header, row)
-        if data.get("send text?", "").strip().casefold() != "yes":
-            continue
-        first_initial = data.get("first initial", "").strip()
-        last_name = data.get("last name", "").strip()
-        if not first_initial or not last_name:
-            continue
-        e164 = _to_e164(data.get("phone number", ""))
-        if e164 is None:
-            summary["skipped"] += 1
-            continue
-        key = _tracking_key(first_initial, last_name)
-        record = _read_tracking(s3, bucket, key)
-        if record.get("visited_at") or record.get("opted_out"):
-            summary["skipped"] += 1
-            continue
-        last_texted_at = record.get("last_texted_at")
-        if last_texted_at and datetime.fromisoformat(last_texted_at) > now - RESEND_AFTER:
-            summary["skipped"] += 1
-            continue
-        name = data.get("guest first name", "").strip() or first_initial
-        body = MESSAGE_TEMPLATE.format(name=name, link=SITE_URL)
-        try:
-            _send_sms(twilio_credentials["account_sid"], twilio_credentials["auth_token"],
-                twilio_credentials["from_number"], e164, body)
-            record["last_texted_at"] = now.isoformat()
-            _write_tracking(s3, bucket, key, record)
-            summary["sent"] += 1
-        except TwilioError as error:
-            if error.code == 21610:  # unsubscribed recipient: never retry
-                record["opted_out"] = True
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=TIMEOUT) as server:
+        server.login(gmail_credentials["email"], gmail_credentials["app_password"])
+        for row in rows[1:]:
+            data = _row_as_dict(header, row)
+            if data.get("send text?", "").strip().casefold() != "yes":
+                continue
+            first_initial = data.get("first initial", "").strip()
+            last_name = data.get("last name", "").strip()
+            if not first_initial or not last_name:
+                continue
+            digits = _phone_digits(data.get("phone number", ""))
+            domain = _carrier_domain(data.get("carrier", ""))
+            if digits is None or domain is None:
+                summary["skipped"] += 1
+                continue
+            key = _tracking_key(first_initial, last_name)
+            record = _read_tracking(s3, bucket, key)
+            if record.get("visited_at"):
+                summary["skipped"] += 1
+                continue
+            last_texted_at = record.get("last_texted_at")
+            if last_texted_at and datetime.fromisoformat(last_texted_at) > now - RESEND_AFTER:
+                summary["skipped"] += 1
+                continue
+            name = data.get("guest first name", "").strip() or first_initial
+            body = MESSAGE_TEMPLATE.format(name=name, link=SITE_URL)
+            message = MIMEText(body)
+            message["Subject"] = ""
+            message["From"] = gmail_credentials["email"]
+            message["To"] = f"{digits}@{domain}"
+            try:
+                server.sendmail(gmail_credentials["email"], [message["To"]], message.as_string())
+                record["last_texted_at"] = now.isoformat()
                 _write_tracking(s3, bucket, key, record)
-            print(f"Could not text {first_initial}/{last_name}: {error}")
-            summary["errors"] += 1
+                summary["sent"] += 1
+            except smtplib.SMTPException as error:
+                print(f"Could not text {first_initial}/{last_name}: {error}")
+                summary["errors"] += 1
     return summary
