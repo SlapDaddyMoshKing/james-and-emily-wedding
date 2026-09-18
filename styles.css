@@ -75,5 +75,17 @@ button { touch-action: manipulation; }
 .skip-link { position: absolute; top: -100px; left: 20px; padding: 14px; background: #fff; z-index: 2; }
 .skip-link:focus { top: 10px; }
 footer { text-align: center; padding: 8px 24px 36px; color: var(--muted); font: 11px/1.8 Arial, sans-serif; letter-spacing: .04em; }
+footer a { margin-left: 6px; }
+.policy-main { max-width: 760px; margin: auto; padding: 56px 40px 64px; }
+.policy-card { background: #fffefa; border: 1px solid #dce3e4; border-top: 4px solid #c7ddeb; border-radius: 8px; padding: 40px; box-shadow: 0 12px 45px #314d6106; }
+.policy-card h1 { font-size: clamp(30px, 4vw, 40px); font-weight: 400; letter-spacing: -.03em; margin: 10px 0 24px; }
+.policy-card h2 { font-size: 20px; margin: 32px 0 12px; }
+.policy-card section:first-of-type h2 { margin-top: 0; }
+.policy-card p, .policy-card li { font: 14px/1.8 Arial, sans-serif; color: var(--muted); }
+.policy-card ol, .policy-card ul { padding-left: 22px; margin: 0 0 16px; }
+.policy-card li { margin-bottom: 6px; }
+.policy-example { margin: 18px 0; padding: 18px 20px; background: #dcecf640; border: 1px dashed #b8c7cf; border-radius: 6px; }
+.policy-example .field-help { margin: 10px 0 0; }
+@media (max-width: 640px) { .policy-main { padding: 32px 18px 40px; } .policy-card { padding: 26px 22px; } }
 @media (max-width: 850px) { main { gap: 30px; padding: 40px 24px; } .form-card { padding: 26px; } h1 { font-size: 39px; } .fields { grid-template-columns: 1fr; gap: 0; } .name-fields { grid-template-columns: 1fr 2fr; gap: 14px; } }
 @media (max-width: 640px) { .site-header { padding: 20px 24px; } .site-header .eyebrow { font-size: 8px; letter-spacing: .12em; } main { display: block; padding: 18px 16px 32px; } .intro { position: static; padding: 22px 14px 26px; } .petals { margin-bottom: 20px; transform: scale(.85); } h1 { font-size: clamp(36px, 9vw, 52px); } .intro h2 { font-size: 34px; } .divider { margin: 24px auto; } .intro-copy { font-size: 14px; } .little-note { margin-top: 24px; } .signoff { margin: 22px 0 0; } .form-card { padding: 28px 22px; } .form-card h2 { font-size: 30px; } legend { font-size: 17px; } }
