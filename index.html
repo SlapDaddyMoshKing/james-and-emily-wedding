@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
   <meta name="description" content="A little mail, a lot of love. Share your contact details with Emily and James for their wedding invitations.">
   <meta name="theme-color" content="#dcecf6">
   <title>Share your details · Emily &amp; James</title>
-  <link rel="stylesheet" href="styles.css?v=invitation-5">
-  <script src="guest-info.js?v=invitation-4" defer></script>
+  <link rel="stylesheet" href="styles.css?v=invitation-6">
+  <script src="guest-info.js?v=invitation-6" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#guest-information">Skip to the form</a>
@@ -28,16 +29,21 @@
       <div id="lookup-content">
         <p class="eyebrow">Let's start with your name</p>
         <h2>Find your invitation</h2>
-        <p class="form-intro" id="lookup-help">Enter your first initial and last name. We'll find your invitation before asking for your details.</p>
+        <p class="form-intro" id="lookup-help">Enter your first initial and last name. Use the personal link from your text to share your details securely.</p>
         <form id="contact-lookup" aria-describedby="lookup-help">
           <div class="fields name-fields">
             <label>First initial<input name="first_initial" autocomplete="off" maxlength="2" placeholder="J" required></label>
             <label>Last name<input name="last_name" autocomplete="family-name" maxlength="100" required></label>
           </div>
           <button class="primary-button" type="submit">Find my invitation <span aria-hidden="true">&#8599;</span></button>
-          <p id="lookup-status" class="form-status" role="status" aria-live="polite"></p>
+          <p id="lookup-status" class="form-status" role="status" aria-live="polite" tabindex="-1"></p>
           <noscript><p>Please enable JavaScript to find your invitation, or contact Emily or James.</p></noscript>
         </form>
+        <section id="invitation-choices" class="invitation-choices" aria-labelledby="choices-title" aria-describedby="choices-help" hidden>
+          <h3 id="choices-title" tabindex="-1">Please select which one is you!</h3>
+          <p id="choices-help" class="field-help">Choose your name below.</p>
+          <ul id="choices-list" class="choices-list"></ul>
+        </section>
       </div>
       <div id="form-content" hidden>
         <p class="eyebrow">Let's keep in touch</p>

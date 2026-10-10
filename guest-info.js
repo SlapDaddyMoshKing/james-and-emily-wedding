@@ -10,9 +10,29 @@ const plusOneSection = document.querySelector("#plus-one-section");
 const plusOneFields = document.querySelector("#plus-one-fields");
 const unknownCheckbox = form.elements.guest_name_unknown;
 const smsConsentCheckbox = form.elements.sms_consent;
+const choices = document.querySelector("#invitation-choices");
+const choicesList = document.querySelector("#choices-list");
+const personalLinkHelp = "Please open the personal link in your text to share your details. If you need a new link, contact Emily or James.";
 let configPromise, identity, guest, submissionId;
 let lastAttempt = null;
 let pending = false;
+let linkToken = null;
+let invalidLink = false;
+
+// The secret stays in this page's memory. It is never saved in browser storage
+// or left in the URL when a guest follows a link from their text.
+const fragment = new URLSearchParams(window.location.hash.slice(1));
+if (fragment.has("invite")) {
+  const tokens = fragment.getAll("invite");
+  invalidLink = tokens.length !== 1 || !/^[A-Za-z0-9_-]{43}$/.test(tokens[0]);
+  if (!invalidLink) linkToken = tokens[0];
+  history.replaceState(history.state, "", window.location.pathname + window.location.search);
+}
+// Reopening a text while this page is already open can be a fragment-only
+// navigation. Start a fresh page so it cannot reuse a previous invitation.
+window.addEventListener("hashchange", () => {
+  if (new URLSearchParams(window.location.hash.slice(1)).has("invite")) window.location.reload();
+});
 
 function status(target, message, error = false) {
   target.textContent = message;
@@ -71,7 +91,112 @@ function setFieldsDisabled(disabled) {
   for (const field of form.elements) field.disabled = disabled;
 }
 
-lookupForm.addEventListener("submit", async event => {
+function clearChoices() {
+  choices.hidden = true;
+  choicesList.replaceChildren();
+}
+
+function showChoices(result, candidate) {
+  if (typeof result.requires_personal_link !== "boolean" || result.candidates.length === 0
+      || result.candidates.some(item => typeof item.invitation_id !== "string" || !item.invitation_id
+        || typeof item.first_name !== "string" || typeof item.last_name !== "string")) {
+    throw new Error("We couldn't confirm your invitation. Please try again.");
+  }
+  clearChoices();
+  document.querySelector("#choices-help").textContent = result.requires_personal_link
+    ? "We found these names. You'll need your personal text link to share your details."
+    : "Choose your name below. Your personal link opens only your own invitation.";
+  for (const match of result.candidates) {
+    const item = document.createElement("li");
+    const choiceButton = document.createElement("button");
+    choiceButton.type = "button";
+    choiceButton.className = "choice-button";
+    choiceButton.textContent = `${match.first_name} ${match.last_name}`;
+    choiceButton.addEventListener("click", () => {
+      if (pending) return;
+      if (result.requires_personal_link || !linkToken) {
+        status(lookupStatus, personalLinkHelp, true);
+        lookupStatus.focus();
+        return;
+      }
+      findInvitation({ ...candidate, invitation_id: match.invitation_id });
+    });
+    item.append(choiceButton);
+    choicesList.append(item);
+  }
+  choices.hidden = false;
+  document.querySelector("#choices-title").focus();
+}
+
+function unlockInvitation(result, candidate) {
+  if (!linkToken || typeof result.invitation_id !== "string" || !result.invitation_id
+      || typeof result.first_name !== "string" || typeof result.last_name !== "string"
+      || typeof result.plus_one_allowed !== "boolean" || typeof result.prefill !== "object" || result.prefill === null) {
+    throw new Error("We couldn't confirm your invitation. Please try again.");
+  }
+  identity = { ...candidate, invitation_id: result.invitation_id, link_token: linkToken };
+  guest = result;
+  lastAttempt = null;
+  form.reset();
+  for (const field of form.querySelectorAll("input, select")) {
+    field.setCustomValidity("");
+    field.removeAttribute("aria-invalid");
+  }
+  form.elements.first_name.value = guest.first_name;
+  form.elements.last_name.value = guest.last_name;
+  // Already-known details fill the form in but stay editable, so a guest
+  // only has to confirm or correct them rather than retype everything.
+  const prefill = guest.prefill;
+  for (const field of ["address_line1", "address_line2", "city", "region", "postal_code", "phone"]) {
+    if (typeof prefill[field] === "string" && prefill[field]) form.elements[field].value = prefill[field];
+  }
+  plusOneSection.hidden = !guest.plus_one_allowed;
+  if (guest.plus_one_allowed) {
+    unknownCheckbox.checked = prefill.guest_name_unknown === true;
+    if (typeof prefill.plus_one_first_name === "string" && prefill.plus_one_first_name) form.elements.plus_one_first_name.value = prefill.plus_one_first_name;
+    if (typeof prefill.plus_one_last_name === "string" && prefill.plus_one_last_name) form.elements.plus_one_last_name.value = prefill.plus_one_last_name;
+  }
+  updatePlusOneFields();
+  document.querySelector("#party-summary").textContent = guest.plus_one_allowed
+    ? "We found your invitation. It includes a plus-one."
+    : "We found your invitation. It's for you only.";
+  clearChoices();
+  document.querySelector("#lookup-content").hidden = true;
+  document.querySelector("#form-content").hidden = false;
+  document.querySelector("#form-title").focus();
+  button.disabled = false;
+}
+
+async function findInvitation(candidate) {
+  if (pending) return;
+  if (invalidLink) {
+    status(lookupStatus, "This personal link is incomplete. Please reopen the original text or ask Emily or James for a new link.", true);
+    return;
+  }
+  pending = true;
+  lookupButton.disabled = true;
+  for (const control of choicesList.querySelectorAll("button")) control.disabled = true;
+  lookupForm.setAttribute("aria-busy", "true");
+  choices.setAttribute("aria-busy", "true");
+  status(lookupStatus, "Finding your invitation…");
+  try {
+    const scopedCandidate = linkToken ? { ...candidate, link_token: linkToken } : candidate;
+    const result = await post("contactPartyUrl", scopedCandidate);
+    if (Array.isArray(result.candidates)) showChoices(result, scopedCandidate);
+    else unlockInvitation(result, scopedCandidate);
+    status(lookupStatus, "");
+  } catch (error) {
+    status(lookupStatus, errorMessage(error), true);
+  } finally {
+    pending = false;
+    lookupButton.disabled = false;
+    for (const control of choicesList.querySelectorAll("button")) control.disabled = false;
+    lookupForm.removeAttribute("aria-busy");
+    choices.removeAttribute("aria-busy");
+  }
+}
+
+lookupForm.addEventListener("submit", event => {
   event.preventDefault();
   if (pending) return;
   const first = lookupForm.elements.first_initial;
@@ -79,57 +204,16 @@ lookupForm.addEventListener("submit", async event => {
   first.setCustomValidity(/^\p{L}$/u.test(first.value) ? "" : "Please enter just your first initial, such as J.");
   lookupForm.elements.last_name.value = lookupForm.elements.last_name.value.trim();
   if (!lookupForm.reportValidity()) return;
-  const candidate = Object.fromEntries(new FormData(lookupForm));
-  pending = true;
-  lookupButton.disabled = true;
-  lookupForm.setAttribute("aria-busy", "true");
-  status(lookupStatus, "Finding your invitation…");
-  try {
-    const result = await post("contactPartyUrl", candidate);
-    if (typeof result.first_name !== "string" || typeof result.last_name !== "string"
-        || typeof result.plus_one_allowed !== "boolean" || typeof result.prefill !== "object" || result.prefill === null) {
-      throw new Error("We couldn't confirm your invitation. Please try again.");
-    }
-    identity = candidate;
-    guest = result;
-    lastAttempt = null;
-    form.reset();
-    for (const field of form.querySelectorAll("input, select")) {
-      field.setCustomValidity("");
-      field.removeAttribute("aria-invalid");
-    }
-    form.elements.first_name.value = guest.first_name;
-    form.elements.last_name.value = guest.last_name;
-    // Already-known details fill the form in but stay editable, so a guest
-    // only has to confirm or correct them rather than retype everything.
-    const prefill = guest.prefill;
-    for (const field of ["address_line1", "address_line2", "city", "region", "postal_code", "phone"]) {
-      if (typeof prefill[field] === "string" && prefill[field]) form.elements[field].value = prefill[field];
-    }
-    plusOneSection.hidden = !guest.plus_one_allowed;
-    if (guest.plus_one_allowed) {
-      unknownCheckbox.checked = prefill.guest_name_unknown === true;
-      if (typeof prefill.plus_one_first_name === "string" && prefill.plus_one_first_name) form.elements.plus_one_first_name.value = prefill.plus_one_first_name;
-      if (typeof prefill.plus_one_last_name === "string" && prefill.plus_one_last_name) form.elements.plus_one_last_name.value = prefill.plus_one_last_name;
-    }
-    updatePlusOneFields();
-    document.querySelector("#party-summary").textContent = guest.plus_one_allowed
-      ? "We found your invitation. It includes a plus-one."
-      : "We found your invitation. It's for you only.";
-    document.querySelector("#lookup-content").hidden = true;
-    document.querySelector("#form-content").hidden = false;
-    document.querySelector("#form-title").focus();
-    button.disabled = false;
-    status(lookupStatus, "");
-  } catch (error) {
-    status(lookupStatus, errorMessage(error), true);
-  } finally {
-    pending = false;
-    lookupButton.disabled = false;
-    lookupForm.removeAttribute("aria-busy");
-  }
+  clearChoices();
+  findInvitation(Object.fromEntries(new FormData(lookupForm)));
 });
 lookupForm.elements.first_initial.addEventListener("input", event => event.target.setCustomValidity(""));
+lookupForm.addEventListener("input", () => {
+  if (pending) return;
+  clearChoices();
+  status(lookupStatus, "");
+});
+if (invalidLink) status(lookupStatus, "This personal link is incomplete. Please reopen the original text or ask Emily or James for a new link.", true);
 
 form.addEventListener("input", event => {
   event.target.setCustomValidity?.("");
@@ -196,6 +280,8 @@ for (const control of document.querySelectorAll(".change-invitation")) control.a
   identity = null;
   guest = null;
   lastAttempt = null;
+  clearChoices();
+  status(lookupStatus, "");
   form.reset();
   confirmation.hidden = true;
   document.querySelector("#form-content").hidden = true;
