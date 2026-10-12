@@ -5,31 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="A little mail, a lot of love. Share your contact details with Emily and James for their wedding invitations.">
+  <meta name="description" content="Share your contact information with Emily and James so they can send you a wedding invitation.">
   <meta name="theme-color" content="#fffdf6">
   <title>Share your details · Emily &amp; James</title>
   <link rel="stylesheet" href="styles.css?v=floral-20261012-1">
-  <script src="guest-info.js?v=floral-20261012-1" defer></script>
+  <script src="guest-info.js?v=floral-20261012-2" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#guest-information">Skip to the form</a>
-  <header class="site-header"><a href="./" aria-label="Emily and James home">E <span>&amp;</span> J</a><span class="eyebrow">A note for our favorite people</span></header>
+  <header class="site-header"><a href="./" aria-label="Emily and James home">E <span>&amp;</span> J</a><span class="eyebrow">Our wedding</span></header>
   <main>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">We're getting married</p>
       <h1 id="page-title">Emily <span class="ampersand">&amp;</span> James</h1>
       <img class="botanical-art" src="assets/wedding-botanicals.svg?v=floral-20261012-1" width="500" height="520" alt="" aria-hidden="true">
       <div class="divider" aria-hidden="true"></div>
-      <h2>A little mail.<br>A lot of love.</h2>
-      <p class="intro-copy">We'd love to celebrate with you. Share your details so we can send a little wedding joy your way.</p>
-      <div class="little-note"><span aria-hidden="true">✦</span><p>Contact details now.<br> Invitations &amp; RSVPs to follow.</p></div>
+      <h2>We'd love to<br>celebrate with you.</h2>
+      <p class="intro-copy">Please share your contact information so we can send you an invitation.</p>
+      <div class="little-note"><span aria-hidden="true">✦</span><p>We'll ask for your RSVP later.</p></div>
       <p class="signoff">With love, Emily &amp; James</p>
     </section>
     <section class="form-card" id="guest-information" aria-label="Guest information" tabindex="-1">
       <div id="lookup-content">
-        <p class="eyebrow">A little note, just for you</p>
+        <p class="eyebrow">Guest information</p>
         <h2>Find your invitation</h2>
-        <p class="form-intro" id="lookup-help">Enter your first initial and last name. Use the personal link from your text to share your details securely.</p>
+        <p class="form-intro" id="lookup-help">Enter your first initial and last name below.</p>
         <form id="contact-lookup" aria-describedby="lookup-help">
           <div class="fields name-fields">
             <label>First initial<input name="first_initial" autocomplete="off" maxlength="2" placeholder="J" required></label>
@@ -40,20 +40,20 @@
           <noscript><p>Please enable JavaScript to find your invitation, or contact Emily or James.</p></noscript>
         </form>
         <section id="invitation-choices" class="invitation-choices" aria-labelledby="choices-title" aria-describedby="choices-help" hidden>
-          <h3 id="choices-title" tabindex="-1">Please select which one is you!</h3>
+          <h3 id="choices-title" tabindex="-1">Select your name</h3>
           <p id="choices-help" class="field-help">Choose your name below.</p>
           <ul id="choices-list" class="choices-list"></ul>
         </section>
       </div>
       <div id="form-content" hidden>
-        <p class="eyebrow">Let's keep in touch</p>
-        <h2 id="form-title" tabindex="-1">Your invitation</h2>
+        <p class="eyebrow">Contact information</p>
+        <h2 id="form-title" tabindex="-1">Your details</h2>
         <p id="party-summary" class="form-intro"></p>
         <button class="text-button change-invitation" type="button">Check a different name</button>
-        <p class="form-intro">Please share one mailing address for your invitation. Fields marked <span aria-hidden="true">*</span> are required.</p>
+        <p class="form-intro">Please share your mailing address below. Fields marked <span aria-hidden="true">*</span> are required.</p>
         <form id="guest-info" aria-describedby="privacy-note" novalidate>
           <fieldset>
-            <legend><span>01</span> A name for our list</legend>
+            <legend><span>01</span> Your name</legend>
             <div class="fields">
               <label>Title <small>(optional)</small><select name="title" autocomplete="honorific-prefix"><option value="">No title</option><option>Mr.</option><option>Mrs.</option><option>Ms.</option><option>Miss</option><option>Mx.</option><option>Dr.</option><option>Prof.</option><option>Rev.</option></select></label>
               <label>First Name <span aria-hidden="true">*</span><input name="first_name" autocomplete="given-name" maxlength="100" required readonly aria-describedby="name-help"></label>
@@ -62,10 +62,10 @@
               <label>Last Name <span aria-hidden="true">*</span><input name="last_name" autocomplete="family-name" maxlength="100" required readonly aria-describedby="name-help"></label>
               <label>Suffix <small>(optional)</small><input name="suffix" autocomplete="honorific-suffix" maxlength="40" placeholder="Jr., Sr., III"></label>
             </div>
-            <p class="field-help" id="name-help">Your first and last name come from your invitation. Contact Emily or James if it needs a correction.</p>
+            <p class="field-help" id="name-help">We've filled in your name from our guest list. Contact Emily or James if it needs correcting.</p>
             <div id="plus-one-section" hidden>
               <h3>Your plus-one</h3>
-              <label class="checkbox-label"><input type="checkbox" name="guest_name_unknown"> <span>Guest Name Unknown</span></label>
+              <label class="checkbox-label"><input type="checkbox" name="guest_name_unknown"> <span>I don't know who I'm bringing yet</span></label>
               <p class="field-help">If you don't know who you'll bring yet, you can tell us later.</p>
               <div id="plus-one-fields">
                 <div class="fields">
@@ -80,7 +80,7 @@
             </div>
           </fieldset>
           <fieldset>
-            <legend><span>02</span> Somewhere to send a little joy</legend>
+            <legend><span>02</span> Mailing address</legend>
             <label>Address line one <span aria-hidden="true">*</span><input name="address_line1" autocomplete="address-line1" maxlength="200" required></label>
             <label>Address line two <small>(optional)</small><input name="address_line2" autocomplete="address-line2" maxlength="200"></label>
             <div class="fields">
@@ -95,7 +95,7 @@
             <div class="sms-policies">
               <p class="field-help" id="sms-terms"><strong>SMS Terms:</strong> Wedding texts may include RSVP reminders and guest updates. Msg frequency varies. Msg/data rates may apply. Reply STOP to opt out or HELP for help. Carriers are not liable for delayed or undelivered messages.</p>
               <p class="field-help" id="sms-privacy"><strong>SMS Privacy:</strong> Phone numbers and SMS consent are used only for wedding RSVP and guest updates. No mobile information, including phone numbers or SMS consent, is shared with third parties for marketing or promotional purposes.</p>
-              <p class="field-help">Full <a href="sms-terms.html#terms">SMS Terms</a> and <a href="sms-terms.html#privacy">SMS Privacy Policy</a> are always available on their own page, without looking up an invitation.</p>
+              <p class="field-help">Read our <a href="sms-terms.html#terms">SMS Terms</a> and <a href="sms-terms.html#privacy">SMS Privacy Policy</a>.</p>
             </div>
           </fieldset>
           <div class="honeypot" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>
@@ -107,16 +107,16 @@
       </div>
       <div id="confirmation" class="confirmation" tabindex="-1" hidden>
         <div class="confirmation-mark" aria-hidden="true"><img src="assets/wedding-botanicals.svg?v=floral-20261012-1" width="500" height="520" alt=""></div>
-        <p class="eyebrow">A little closer to celebrating</p>
-        <h2>You're on our list.</h2>
-        <p>Thank you! Your invitation details and mailing address have been saved for Emily &amp; James.</p>
-        <p>We'll use them for invitations and wedding updates. We'll ask for your RSVP later.</p>
+        <p class="eyebrow">Details saved</p>
+        <h2>Thank you!</h2>
+        <p>We've saved your contact information.</p>
+        <p>We'll send your invitation to the address you provided and ask for your RSVP later.</p>
         <p class="receipt" id="receipt"></p>
         <button class="text-button change-invitation" type="button">Check a different name</button>
-        <p class="field-help">Need to correct something? Contact Emily or James with your reference so we can update your details.</p>
+        <p class="field-help">Need to make a change? Contact Emily or James and share your reference code.</p>
       </div>
     </section>
   </main>
-  <footer>Made with love, for the people we love. <a href="sms-terms.html">SMS Terms &amp; Privacy</a></footer>
+  <footer>Emily &amp; James <a href="sms-terms.html">SMS Terms &amp; Privacy</a></footer>
 </body>
 </html>

@@ -113,8 +113,8 @@ function showChoices(result, candidate) {
   }
   clearChoices();
   choicesHelp.textContent = result.requires_personal_link
-    ? "We found these names. You'll need your personal text link to share your details."
-    : "Choose your name below. Your personal link opens only your own invitation.";
+    ? "To share your details, open the link in your text."
+    : "Select your name below to continue.";
   for (const match of result.candidates) {
     const item = document.createElement("li");
     const choiceButton = document.createElement("button");
@@ -167,8 +167,8 @@ function unlockInvitation(result, candidate) {
   }
   updatePlusOneFields();
   partySummary.textContent = guest.plus_one_allowed
-    ? "We found your invitation. It includes a plus-one."
-    : "We found your invitation. It's for you only.";
+    ? "Your invitation includes a plus-one."
+    : "Your invitation is for you only.";
   clearChoices();
   lookupContent.hidden = true;
   formContent.hidden = false;
