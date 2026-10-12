@@ -109,7 +109,7 @@ function showChoices(result, candidate) {
   if (typeof result.requires_personal_link !== "boolean" || result.candidates.length === 0
       || result.candidates.some(item => typeof item.invitation_id !== "string" || !item.invitation_id
         || typeof item.first_name !== "string" || typeof item.last_name !== "string")) {
-    throw new Error("We couldn't confirm your invitation. Please try again.");
+    throw new Error("We couldn't load your details. Please try again.");
   }
   clearChoices();
   choicesHelp.textContent = result.requires_personal_link
@@ -141,7 +141,7 @@ function unlockInvitation(result, candidate) {
   if (!linkToken || typeof result.invitation_id !== "string" || !result.invitation_id
       || typeof result.first_name !== "string" || typeof result.last_name !== "string"
       || typeof result.plus_one_allowed !== "boolean" || typeof result.prefill !== "object" || result.prefill === null) {
-    throw new Error("We couldn't confirm your invitation. Please try again.");
+    throw new Error("We couldn't load your details. Please try again.");
   }
   identity = { ...candidate, invitation_id: result.invitation_id, link_token: linkToken };
   const guest = result;
@@ -167,8 +167,8 @@ function unlockInvitation(result, candidate) {
   }
   updatePlusOneFields();
   partySummary.textContent = guest.plus_one_allowed
-    ? "Your invitation includes a plus-one."
-    : "Your invitation is for you only.";
+    ? "You can add your plus-one's name below."
+    : "Please share your contact information below.";
   clearChoices();
   lookupContent.hidden = true;
   formContent.hidden = false;
@@ -187,7 +187,7 @@ async function findInvitation(candidate) {
   for (const control of choicesList.querySelectorAll("button")) control.disabled = true;
   lookupForm.setAttribute("aria-busy", "true");
   choices.setAttribute("aria-busy", "true");
-  status(lookupStatus, "Finding your invitation…");
+  status(lookupStatus, "Finding your name…");
   try {
     const scopedCandidate = linkToken ? { ...candidate, link_token: linkToken } : candidate;
     const result = await post("contactPartyUrl", scopedCandidate);
