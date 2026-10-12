@@ -12,8 +12,17 @@ const unknownCheckbox = form.elements.guest_name_unknown;
 const smsConsentCheckbox = form.elements.sms_consent;
 const choices = document.querySelector("#invitation-choices");
 const choicesList = document.querySelector("#choices-list");
+const choicesTitle = document.querySelector("#choices-title");
+const choicesHelp = document.querySelector("#choices-help");
+const lookupContent = document.querySelector("#lookup-content");
+const formContent = document.querySelector("#form-content");
+const formTitle = document.querySelector("#form-title");
+const partySummary = document.querySelector("#party-summary");
+const receipt = document.querySelector("#receipt");
+const changeInvitationControls = document.querySelectorAll(".change-invitation");
 const personalLinkHelp = "Please open the personal link in your text to share your details. If you need a new link, contact Emily or James.";
-let configPromise, identity, guest, submissionId;
+const incompleteLinkHelp = "This personal link is incomplete. Please reopen the original text or ask Emily or James for a new link.";
+let configPromise, identity;
 let lastAttempt = null;
 let pending = false;
 let linkToken = null;
@@ -103,7 +112,7 @@ function showChoices(result, candidate) {
     throw new Error("We couldn't confirm your invitation. Please try again.");
   }
   clearChoices();
-  document.querySelector("#choices-help").textContent = result.requires_personal_link
+  choicesHelp.textContent = result.requires_personal_link
     ? "We found these names. You'll need your personal text link to share your details."
     : "Choose your name below. Your personal link opens only your own invitation.";
   for (const match of result.candidates) {
@@ -125,7 +134,7 @@ function showChoices(result, candidate) {
     choicesList.append(item);
   }
   choices.hidden = false;
-  document.querySelector("#choices-title").focus();
+  choicesTitle.focus();
 }
 
 function unlockInvitation(result, candidate) {
@@ -135,7 +144,7 @@ function unlockInvitation(result, candidate) {
     throw new Error("We couldn't confirm your invitation. Please try again.");
   }
   identity = { ...candidate, invitation_id: result.invitation_id, link_token: linkToken };
-  guest = result;
+  const guest = result;
   lastAttempt = null;
   form.reset();
   for (const field of form.querySelectorAll("input, select")) {
@@ -157,20 +166,20 @@ function unlockInvitation(result, candidate) {
     if (typeof prefill.plus_one_last_name === "string" && prefill.plus_one_last_name) form.elements.plus_one_last_name.value = prefill.plus_one_last_name;
   }
   updatePlusOneFields();
-  document.querySelector("#party-summary").textContent = guest.plus_one_allowed
+  partySummary.textContent = guest.plus_one_allowed
     ? "We found your invitation. It includes a plus-one."
     : "We found your invitation. It's for you only.";
   clearChoices();
-  document.querySelector("#lookup-content").hidden = true;
-  document.querySelector("#form-content").hidden = false;
-  document.querySelector("#form-title").focus();
+  lookupContent.hidden = true;
+  formContent.hidden = false;
+  formTitle.focus();
   button.disabled = false;
 }
 
 async function findInvitation(candidate) {
   if (pending) return;
   if (invalidLink) {
-    status(lookupStatus, "This personal link is incomplete. Please reopen the original text or ask Emily or James for a new link.", true);
+    status(lookupStatus, incompleteLinkHelp, true);
     return;
   }
   pending = true;
@@ -213,7 +222,7 @@ lookupForm.addEventListener("input", () => {
   clearChoices();
   status(lookupStatus, "");
 });
-if (invalidLink) status(lookupStatus, "This personal link is incomplete. Please reopen the original text or ask Emily or James for a new link.", true);
+if (invalidLink) status(lookupStatus, incompleteLinkHelp, true);
 
 form.addEventListener("input", event => {
   event.target.setCustomValidity?.("");
@@ -222,7 +231,7 @@ form.addEventListener("input", event => {
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
-  if (pending || !identity || !guest) return;
+  if (pending || !identity) return;
   for (const field of form.querySelectorAll("input")) {
     field.value = field.value.trim();
     field.setCustomValidity("");
@@ -236,25 +245,24 @@ form.addEventListener("submit", async event => {
   const data = { ...Object.fromEntries(new FormData(form)), guest_name_unknown: unknownCheckbox.checked,
     sms_consent: smsConsentCheckbox.checked, lookup: identity };
   const body = JSON.stringify(data);
-  submissionId = lastAttempt?.body === body ? lastAttempt.id : crypto.randomUUID();
+  const submissionId = lastAttempt?.body === body ? lastAttempt.id : crypto.randomUUID();
   lastAttempt = { body, id: submissionId };
   pending = true;
   button.disabled = true;
   form.setAttribute("aria-busy", "true");
   setFieldsDisabled(true);
-  for (const control of document.querySelectorAll(".change-invitation")) control.disabled = true;
+  for (const control of changeInvitationControls) control.disabled = true;
   status(statusText, "Sending your details…");
   try {
     const result = await post("guestInfoUrl", { ...data, submission_id: submissionId });
     if (result.saved !== true || result.submission_id !== submissionId) throw new Error("We couldn't confirm your details were saved. Please try again.");
-    document.querySelector("#form-content").hidden = true;
+    formContent.hidden = true;
     confirmation.hidden = false;
-    document.querySelector("#receipt").textContent = `Your reference: ${submissionId}`;
+    receipt.textContent = `Your reference: ${submissionId}`;
     confirmation.focus();
     status(statusText, "");
     form.reset();
     identity = null;
-    guest = null;
     lastAttempt = null;
   } catch (error) {
     if (error.code === 409) lastAttempt = null;
@@ -271,20 +279,19 @@ form.addEventListener("submit", async event => {
     button.disabled = false;
     form.removeAttribute("aria-busy");
     setFieldsDisabled(false);
-    for (const control of document.querySelectorAll(".change-invitation")) control.disabled = false;
+    for (const control of changeInvitationControls) control.disabled = false;
   }
 });
 
-for (const control of document.querySelectorAll(".change-invitation")) control.addEventListener("click", () => {
+for (const control of changeInvitationControls) control.addEventListener("click", () => {
   if (pending) return;
   identity = null;
-  guest = null;
   lastAttempt = null;
   clearChoices();
   status(lookupStatus, "");
   form.reset();
   confirmation.hidden = true;
-  document.querySelector("#form-content").hidden = true;
-  document.querySelector("#lookup-content").hidden = false;
+  formContent.hidden = true;
+  lookupContent.hidden = false;
   lookupForm.elements.first_initial.focus();
 });
